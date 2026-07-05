@@ -1,48 +1,84 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# ===================================
+# 知链 (ZhiLian / CogniLink) .gitignore
+# ===================================
 
-# dependencies
-/node_modules
-/.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
+# ── Python ──────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# 虚拟环境
+backend/venv/
+backend/.venv/
+venv/
+.venv/
+env/
+
+# 测试 / 覆盖率
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+
+# ── Node / Next.js ───────────────────
 node_modules/
-
-# testing
-/coverage
-
-# next.js
-/.next/
-/out/
-
-# production
-/build
-
-# misc
-.DS_Store
-*.pem
-
-# debug
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+.pnp
+.pnp.*
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
-
-# env files (can opt-in for committing if needed)
-.env*
-
-# vercel
-.vercel
-
-# typescript
 *.tsbuildinfo
 next-env.d.ts
 
-# monorepo generated artifacts
-frontend/.next/
-frontend/node_modules/
-backend/**/__pycache__/
-backend/**/*.pyc
+# ── 环境变量（敏感配置） ─────────────
+.env
+.env.*
+!.env.example
+
+# ── 数据库 / 运行时文件 ──────────────
+*.db
+*.sqlite
+*.sqlite3
+
+# ── 用户上传文件（不入库） ───────────
+backend/uploads/
+
+# ── 日志 ────────────────────────────
+*.log
+server.log
+logs/
+
+# ── IDE / 编辑器 ────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ── 密钥 / 证书 ─────────────────────
+*.pem
+*.key
+*.cert
+
+# ── 临时工具脚本（已完成使命） ────────
+backend/fix_admin.py
+
+# ── 构建产物 ────────────────────────
+.vercel
+/out/
+/coverage/
