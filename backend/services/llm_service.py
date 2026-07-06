@@ -31,6 +31,55 @@ def _to_text(value: Any) -> str:
 class LLMService:
     """Service for streaming LLM chat responses with optional RAG, memory, and tools."""
 
+    def _collect_tool_calls(
+        self,
+        accumulated: Dict[int, Dict[str, Any]],
+        delta_tool_calls: list,
+    ) -> Dict[int, Dict[str, Any]]:
+        """
+        累积流式响应中的 tool_calls 分片。
+
+        OpenAI 流式响应中，tool_calls 按 index 分片到达：
+        - 首个分片包含 id、type、function.name
+        - 后续分片只包含 function.arguments 的部分字符串
+        本方法按 index 累积组装完整的 tool_call。
+
+        Args:
+            accumulated: 已累积的 tool_calls，key=index
+            delta_tool_calls: 当前 chunk 的 delta.tool_calls 列表
+
+        Returns:
+            更新后的 accumulated 字典
+        """
+        for tc in delta_tool_calls:
+            idx = getattr(tc, "index", None)
+            if idx is None:
+                continue
+            if idx not in accumulated:
+                accumulated[idx] = {
+                    "id": "",
+                    "type": "function",
+                    "function": {"name": "", "arguments": ""},
+                }
+            # id 只在首个分片出现
+            tc_id = getattr(tc, "id", None)
+            if tc_id:
+                accumulated[idx]["id"] = tc_id
+            # type 只在首个分片出现
+            tc_type = getattr(tc, "type", None)
+            if tc_type:
+                accumulated[idx]["type"] = tc_type
+            # function 字段可能分片到达
+            func = getattr(tc, "function", None)
+            if func:
+                name = getattr(func, "name", None)
+                if name:
+                    accumulated[idx]["function"]["name"] = name
+                args = getattr(func, "arguments", None)
+                if args:
+                    accumulated[idx]["function"]["arguments"] += args
+        return accumulated
+
     async def stream_chat(
         self,
         message: str,
