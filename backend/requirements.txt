@@ -28,3 +28,5 @@ FlagEmbedding
 pyjwt
 passlib
 bcrypt
+langgraph
+langgraph-checkpoint-postgres
