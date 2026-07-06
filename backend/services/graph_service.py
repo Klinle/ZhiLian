@@ -304,6 +304,64 @@ class GraphService:
         agent_results["llmops"] = {"content": content, "error": None if content else "LLM 返回空内容"}
         return {"agent_results": agent_results}
 
+    async def reviewer_node(self, state: AgentState) -> dict:
+        """
+        Reviewer 节点：交叉审查 + 最终聚合
+
+        收集所有 Agent 的中间结果，使用 LLM 检查一致性，
+        聚合生成最终输出。
+        """
+        user_message = state.get("user_message", "")
+        api_key = state.get("api_key", "")
+        model = state.get("model", "")
+        base_url = state.get("base_url")
+        agent_results = state.get("agent_results", {})
+        needs_review = state.get("needs_review", False)
+
+        # 收集所有 Agent 的有效结果
+        results_parts: list[str] = []
+        for agent_name, result in agent_results.items():
+            if isinstance(result, dict):
+                content = result.get("content", "") or result.get("context", "")
+                if content:
+                    results_parts.append(f"### {agent_name} 的结果\n{content}")
+
+        # 无任何结果时返回默认回答
+        if not results_parts:
+            return {"final_answer": "抱歉，无法生成回答。", "needs_review": False}
+
+        results_text = "\n\n".join(results_parts)
+
+        # 根据是否需要交叉审查构建不同的 system_prompt
+        if needs_review:
+            system_prompt = (
+                "你是一个审查者和聚合器。以下是多个 Agent 的回答结果，请：\n"
+                "1. 检查各结果之间的一致性\n"
+                "2. 去除矛盾或重复的内容\n"
+                "3. 聚合成一个连贯、完整的最终回答\n"
+                "4. 保持原有的技术准确性和教学价值\n\n"
+                f"## 用户原始问题\n{user_message}\n\n"
+                f"## 各 Agent 的结果\n{results_text}\n\n"
+                "请直接输出聚合后的最终回答，不要包含审查过程。"
+            )
+        else:
+            # 单个 Agent 结果，直接作为最终答案
+            system_prompt = (
+                "请基于以下内容回答用户的问题。\n\n"
+                f"## 用户问题\n{user_message}\n\n"
+                f"## 参考内容\n{results_text}\n\n"
+                "请直接输出回答。"
+            )
+
+        final_answer = await self._call_llm(
+            system_prompt, user_message, api_key, model, base_url
+        )
+
+        return {
+            "final_answer": final_answer or "抱歉，无法生成回答。",
+            "needs_review": False,
+        }
+
     def _build_workflow(self):
         """
         构建 LangGraph StateGraph 工作流

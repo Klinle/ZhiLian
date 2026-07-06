@@ -427,3 +427,119 @@ class TestOpsBotNode:
         call_args = mock_llm.call_args
         system_prompt = call_args[0][0]
         assert "知识库参考资料" not in system_prompt
+
+
+class TestReviewerNode:
+    """Reviewer 交叉审查节点测试"""
+
+    @pytest.fixture
+    def service(self):
+        return GraphService()
+
+    @pytest.mark.asyncio
+    async def test_multi_agent_aggregation(self, service):
+        """测试：多 Agent 结果聚合（needs_review=True）"""
+        with patch.object(
+            service, "_call_llm", new_callable=AsyncMock,
+            return_value="聚合后的最终回答",
+        ) as mock_llm:
+            state: AgentState = {
+                "user_message": "如何用 RAG 提升 LangGraph？",
+                "api_key": "test-key",
+                "model": "test-model",
+                "needs_review": True,
+                "agent_results": {
+                    "rag": {"context": "RAG 最佳实践", "error": None},
+                    "langgraph": {"content": "LangGraph 设计方案", "error": None},
+                },
+            }
+            result = await service.reviewer_node(state)
+
+        assert result["final_answer"] == "聚合后的最终回答"
+        assert result["needs_review"] is False
+        # 验证 system_prompt 包含审查指令
+        call_args = mock_llm.call_args
+        system_prompt = call_args[0][0]
+        assert "审查" in system_prompt
+        assert "一致性" in system_prompt
+
+    @pytest.mark.asyncio
+    async def test_single_agent_passthrough(self, service):
+        """测试：单 Agent 结果直接输出（needs_review=False）"""
+        with patch.object(
+            service, "_call_llm", new_callable=AsyncMock,
+            return_value="最终回答",
+        ) as mock_llm:
+            state: AgentState = {
+                "user_message": "什么是 RAG？",
+                "api_key": "test-key",
+                "model": "test-model",
+                "needs_review": False,
+                "agent_results": {
+                    "rag": {"context": "RAG 是检索增强生成", "error": None},
+                },
+            }
+            result = await service.reviewer_node(state)
+
+        assert result["final_answer"] == "最终回答"
+        # 验证 system_prompt 不包含审查指令
+        call_args = mock_llm.call_args
+        system_prompt = call_args[0][0]
+        assert "审查" not in system_prompt
+
+    @pytest.mark.asyncio
+    async def test_no_results_default_answer(self, service):
+        """测试：无任何 Agent 结果时返回默认回答"""
+        state: AgentState = {
+            "user_message": "问题",
+            "api_key": "test-key",
+            "model": "test-model",
+            "agent_results": {},
+        }
+        result = await service.reviewer_node(state)
+
+        assert "抱歉" in result["final_answer"]
+        assert result["needs_review"] is False
+
+    @pytest.mark.asyncio
+    async def test_empty_llm_response_default(self, service):
+        """测试：LLM 返回空内容时返回默认回答"""
+        with patch.object(
+            service, "_call_llm", new_callable=AsyncMock,
+            return_value="",
+        ):
+            state: AgentState = {
+                "user_message": "问题",
+                "api_key": "test-key",
+                "model": "test-model",
+                "agent_results": {
+                    "rag": {"context": "内容", "error": None},
+                },
+            }
+            result = await service.reviewer_node(state)
+
+        assert "抱歉" in result["final_answer"]
+
+    @pytest.mark.asyncio
+    async def test_skip_empty_agent_results(self, service):
+        """测试：跳过空结果的 Agent"""
+        with patch.object(
+            service, "_call_llm", new_callable=AsyncMock,
+            return_value="回答",
+        ) as mock_llm:
+            state: AgentState = {
+                "user_message": "问题",
+                "api_key": "test-key",
+                "model": "test-model",
+                "agent_results": {
+                    "rag": {"context": "", "error": "错误"},
+                    "langgraph": {"content": "有效内容", "error": None},
+                },
+            }
+            result = await service.reviewer_node(state)
+
+        assert result["final_answer"] == "回答"
+        # 验证 system_prompt 只包含有效内容
+        call_args = mock_llm.call_args
+        system_prompt = call_args[0][0]
+        assert "有效内容" in system_prompt
