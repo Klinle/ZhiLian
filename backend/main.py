@@ -7,6 +7,10 @@ from api.documents import router as documents_router
 from api.memories import router as memories_router
 from api.conversations import router as conversations_router
 from api.auth import router as auth_router
+from api.knowledge import router as knowledge_router
+from api.labs import router as labs_router
+from api.profile import router as profile_router
+from api.admin import router as admin_router
 from core.database import init_db
 
 @asynccontextmanager
@@ -38,6 +42,10 @@ app.include_router(documents_router)
 app.include_router(memories_router)
 app.include_router(conversations_router)
 app.include_router(auth_router)
+app.include_router(knowledge_router)
+app.include_router(labs_router)
+app.include_router(profile_router)
+app.include_router(admin_router)
 
 @app.get("/")
 async def root():
@@ -49,4 +57,4 @@ async def health():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

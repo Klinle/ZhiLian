@@ -1,20 +1,37 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import AdminLayout from "@/components/admin-layout";
-import { Upload, FileText, Trash2, Database } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { adminApi } from "@/lib/api";
+import { Loader2, FileText, Globe, Lock } from "lucide-react";
 
-export default function AdminKnowledge() {
-  const [docs, setDocs] = useState([
-    { name: "2026年Q2财报分析.pdf", size: "4.8 MB", chunks: 124, status: "已完成" },
-    { name: "机器学习基础讲义.docx", size: "12.4 MB", chunks: 312, status: "已完成" },
-    { name: "日常工作汇报.xlsx", size: "854 KB", chunks: 45, status: "已完成" },
-  ]);
+export default function AdminKnowledgePage() {
+  const [documents, setDocuments] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const handleDelete = (name: string) => {
-    if (confirm(`确定要删除知识库文档 ${name} 吗？`)) {
-      setDocs(docs.filter(d => d.name !== name));
+  const fetchDocuments = useCallback(async () => {
+    try {
+      const data = await adminApi.listDocuments();
+      setDocuments(data);
+    } catch (error) {
+      console.error("Failed to fetch documents:", error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchDocuments();
+  }, [fetchDocuments]);
+
+  const handleToggleVisibility = async (docId: string, currentVisibility: string) => {
+    const newVisibility = currentVisibility === "private" ? "shared" : "private";
+    try {
+      await adminApi.updateDocument(docId, { visibility: newVisibility });
+      await fetchDocuments();
+    } catch (error) {
+      console.error("Failed to update document:", error);
+      alert("更新失败");
     }
   };
 
@@ -22,75 +39,75 @@ export default function AdminKnowledge() {
     <AdminLayout>
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">知识库管理</h1>
-          <p className="text-sm text-slate-500 mt-1">上传本地文档并处理切片，构建 RAG 专属智能知识库。</p>
+          <h1 className="text-xl font-bold text-slate-900 dark:text-white">知识库管理</h1>
+          <p className="text-xs text-slate-500 mt-1">管理全局文档与可见性设置</p>
         </div>
 
-        {/* Upload Zone */}
-        <div className="border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl p-8 bg-white dark:bg-[#121424] flex flex-col items-center justify-center text-center shadow-sm">
-          <div className="w-12 h-12 rounded-xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center mb-4">
-            <Upload className="h-6 w-6" />
+        {loading ? (
+          <div className="flex items-center justify-center py-20">
+            <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
           </div>
-          <h3 className="font-semibold text-slate-800 dark:text-white text-sm">拖拽文件到此处，或点击上传</h3>
-          <p className="text-xs text-slate-400 mt-1 max-w-xs">支持 PDF, Word, Excel, TXT 格式，单个文件最大 50MB</p>
-          <Button className="mt-4 text-xs bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-4 h-9">
-            选择文件
-          </Button>
-        </div>
-
-        {/* Knowledge Base List */}
-        <div className="bg-white dark:bg-[#121424] rounded-xl border border-slate-100 dark:border-[#1f233a] shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-100 dark:border-[#1f233a] flex items-center justify-between">
-            <h3 className="font-bold text-sm text-slate-800 dark:text-white flex items-center gap-2">
-              <Database className="h-4 w-4 text-indigo-500" />
-              已入库文档
-            </h3>
-            <span className="text-[10px] text-slate-400 font-mono">共 {docs.length} 个文档</span>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
+        ) : documents.length === 0 ? (
+          <div className="text-center py-20 text-slate-400 text-sm">暂无文档</div>
+        ) : (
+          <div className="bg-white dark:bg-[#121424] border border-slate-200 dark:border-[#1f233a] rounded-xl overflow-hidden">
+            <table className="w-full text-sm">
               <thead>
-                <tr className="bg-slate-50/50 dark:bg-slate-800/40 text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-100 dark:border-slate-800">
-                  <th className="py-4 px-6">文档名称</th>
-                  <th className="py-4 px-6">大小</th>
-                  <th className="py-4 px-6">向量分片数</th>
-                  <th className="py-4 px-6">状态</th>
-                  <th className="py-4 px-6 text-right">操作</th>
+                <tr className="border-b border-slate-200 dark:border-[#1f233a] text-xs text-slate-400">
+                  <th className="text-left px-4 py-3 font-medium">文档名称</th>
+                  <th className="text-left px-4 py-3 font-medium">类型</th>
+                  <th className="text-left px-4 py-3 font-medium">状态</th>
+                  <th className="text-left px-4 py-3 font-medium">可见性</th>
+                  <th className="text-left px-4 py-3 font-medium">上传时间</th>
+                  <th className="text-left px-4 py-3 font-medium">操作</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-slate-600 dark:text-slate-300">
-                {docs.map((doc, idx) => (
-                  <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/10 transition-colors">
-                    <td className="py-4 px-6">
-                      <div className="flex items-center gap-3">
-                        <FileText className="h-4 w-4 text-indigo-500 shrink-0" />
-                        <span className="font-semibold text-slate-800 dark:text-white text-sm">{doc.name}</span>
+              <tbody>
+                {documents.map((doc) => (
+                  <tr key={doc.id} className="border-b border-slate-100 dark:border-[#1f233a]/50 hover:bg-slate-50 dark:hover:bg-slate-800/30">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <FileText className="h-4 w-4 text-slate-400 shrink-0" />
+                        <span className="font-medium text-slate-700 dark:text-slate-200 truncate max-w-xs">{doc.title}</span>
                       </div>
                     </td>
-                    <td className="py-4 px-6 font-mono text-slate-400">{doc.size}</td>
-                    <td className="py-4 px-6 font-mono text-slate-400">{doc.chunks} 片</td>
-                    <td className="py-4 px-6">
-                      <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-500">
+                    <td className="px-4 py-3 text-xs text-slate-500">{doc.file_type}</td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                        doc.status === "completed"
+                          ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400"
+                          : doc.status === "processing"
+                          ? "bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400"
+                          : "bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400"
+                      }`}>
                         {doc.status}
                       </span>
                     </td>
-                    <td className="py-4 px-6 text-right space-x-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDelete(doc.name)}
-                        className="h-8 w-8 text-slate-400 hover:text-rose-500 hover:bg-slate-100 dark:hover:bg-slate-850"
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium flex items-center gap-1 w-fit ${
+                        doc.visibility === "shared"
+                          ? "bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400"
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-500"
+                      }`}>
+                        {doc.visibility === "shared" ? <Globe className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
+                        {doc.visibility}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-slate-400">{new Date(doc.created_at).toLocaleDateString()}</td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => handleToggleVisibility(doc.id, doc.visibility)}
+                        className="text-xs px-3 py-1 rounded text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-950/30"
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                        切换为{doc.visibility === "private" ? "共享" : "私有"}
+                      </button>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </div>
+        )}
       </div>
     </AdminLayout>
   );

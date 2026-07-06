@@ -1,0 +1,53 @@
+---
+description: 前端 (Next.js/React) 开发规范
+globs: ["frontend/**/*.ts", "frontend/**/*.tsx", "frontend/**/*.css"]
+alwaysApply: false
+---
+
+# 🎨 前端开发规范 (Next.js 16 + React)
+
+## 目录结构约束
+
+- 所有的页面级组件放置在 `app/` 目录下（App Router 规范）
+- 所有的可复用组件放置在 `components/` 目录下
+- 所有的状态管理放置在 `stores/` 目录下
+- 所有的工具函数放置在 `lib/` 目录下
+- 所有的类型定义放置在 `types/` 目录下
+
+## 编程风格
+
+- **函数式组件**: 强制使用函数式组件和 Hooks，禁用 Class 组件
+- **严格模式**: TypeScript 必须在严格模式下运行，严禁使用 `any`，必须为所有 Props 和 State 定义明确的 `interface` 或 `type`
+- **Client/Server 组件边界**:
+  - 默认所有组件都是 Server Components
+  - 只有在需要使用 React 状态 (useState, useEffect)、DOM API 或事件监听器时，才在文件顶部添加 `"use client"`
+
+## 样式与 UI (Tailwind CSS)
+
+- 优先使用 Tailwind CSS 类名，禁止写行内样式 (`style={{...}}`)
+- 优先复用 `components/ui` 下现有的基础组件 (基于 Radix UI / shadcn/ui)
+- 风格基调：深色科技感、Glassmorphism (玻璃拟物化)、靛蓝色 (Indigo)
+
+## API 请求与鉴权
+
+- **鉴权头**: 所有向后端的 `fetch` 请求必须携带 JWT Token。
+- **强制使用助手函数**: 必须引入并使用 `getAuthHeaders()` 来合并 headers，不要手动拼接 `Authorization: Bearer ...`。
+
+```typescript
+// ✅ Good: 使用 getAuthHeaders
+import { API_BASE_URL, getAuthHeaders } from "@/lib/api";
+
+const response = await fetch(`${API_BASE_URL}/api/some-endpoint`, {
+  headers: getAuthHeaders()
+});
+
+// ❌ Bad: 忘记携带 Token 或手动拼接
+const response = await fetch(`${API_BASE_URL}/api/some-endpoint`, {
+  headers: { "Authorization": `Bearer ${token}` }
+});
+```
+
+## 异常处理
+
+- 异步请求必须包裹在 `try/catch` 中，并在 `finally` 中重置加载状态。
+- 向用户展示友好的错误提示，避免界面崩溃。

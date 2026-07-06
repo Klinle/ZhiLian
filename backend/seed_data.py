@@ -163,6 +163,7 @@ async def seed_all_data():
         labs = [
             Lab(
                 title="混合检索 RRF (Reciprocal Rank Fusion) 核心算法实现",
+                lab_type="code",
                 description="实操目标: 编写 RRF 分数聚合算法。输入来自 BM25 (稀疏) 与 Vector (稠密) 的多路召回候选列表，将其倒数分合并重排，返回前 K 个最高分数的结果。测试验证算法的鲁棒性。",
                 starter_code="""def rrf_score(dense_results: list, sparse_results: list, k: int = 60, top_n: int = 5) -> list:
     # dense_results 结构: [{"doc_id": "1", "score": 0.9}, {"doc_id": "2", "score": 0.8}]
@@ -180,6 +181,7 @@ async def seed_all_data():
             ),
             Lab(
                 title="LangGraph 循环纠错条件边 (Conditional Edge) 实现",
+                lab_type="code",
                 description="实操目标: 定义一个条件路由函数，用来检查 LLM 输出代码的编译状态。如果代码没有通过测试用例 (Passed = False)，路由将重新指向 'coder' 节点进行修改；若通过，指向结束 (END)。以此实现智能体自我反思纠错环路。",
                 starter_code="""def route_code_check(state: dict) -> str:
     # state 包含 keys: 'code', 'tests_passed'
@@ -194,6 +196,103 @@ async def seed_all_data():
                 },
                 node_id=nodes["LG_EDGES"].id,
                 difficulty="hard"
+            ),
+            # 选择题
+            Lab(
+                title="RAG 文档分块策略选择题",
+                description="测试对 RAG 文档分块 (Chunking) 核心概念的理解。",
+                starter_code="",
+                lab_type="quiz",
+                test_cases={
+                    "questions": [
+                        {
+                            "id": "q1",
+                            "text": "在 RAG 系统中，文档分块 (Chunking) 的主要目的是什么？",
+                            "options": [
+                                "优化硬件算力分配，降低功耗",
+                                "适配模型 Token 限制并提高检索召回率",
+                                "将 PDF 压缩成更小文件",
+                                "对用户提问进行敏感词审查"
+                            ],
+                            "answer": 1,
+                            "explanation": "文档分块能保证文本长度适配模型 Token 限制，同时让向量检索更精确地召回高相关片段。"
+                        },
+                        {
+                            "id": "q2",
+                            "text": "以下哪种分块策略最有利于保持语义完整性？",
+                            "options": [
+                                "固定字符长度分块",
+                                "随机长度分块",
+                                "基于语义结构的分块",
+                                "不分块，整篇文档作为一个向量"
+                            ],
+                            "answer": 2,
+                            "explanation": "基于语义结构（如标题、段落）的分块能更好地保持文本的语义完整性，提高检索质量。"
+                        },
+                        {
+                            "id": "q3",
+                            "text": "切块重叠 (Overlap) 的作用是什么？",
+                            "options": [
+                                "增加向量存储空间",
+                                "确保上下文连贯性，避免关键信息被切断",
+                                "提高 Embedding 生成速度",
+                                "减少文档总 Token 数"
+                            ],
+                            "answer": 1,
+                            "explanation": "Overlap 确保相邻块之间有重叠部分，避免关键信息在分块边界处被切断，保持上下文连贯。"
+                        }
+                    ]
+                },
+                node_id=nodes["RAG_CHUNKING"].id,
+                difficulty="easy"
+            ),
+            Lab(
+                title="LangGraph 状态机概念选择题",
+                description="测试对 LangGraph 状态机核心概念的理解。",
+                starter_code="",
+                lab_type="quiz",
+                test_cases={
+                    "questions": [
+                        {
+                            "id": "q1",
+                            "text": "在 LangGraph 中，State 的 Reducer 函数的作用是什么？",
+                            "options": [
+                                "压缩状态数据以节省内存",
+                                "在多节点并发更新时合并状态通道的值",
+                                "将状态持久化到数据库",
+                                "加密状态数据"
+                            ],
+                            "answer": 1,
+                            "explanation": "Reducer 是聚合函数，用于在多节点并发更新同一状态通道时合并各节点的输出值。"
+                        },
+                        {
+                            "id": "q2",
+                            "text": "LangGraph 中有条件边 (Conditional Edge) 的主要用途是什么？",
+                            "options": [
+                                "优化图的渲染性能",
+                                "根据状态动态决定下一个执行节点",
+                                "压缩图的拓扑结构",
+                                "加密边上的数据传输"
+                            ],
+                            "answer": 1,
+                            "explanation": "有条件边通过路由函数检查当前状态，动态决定下一个执行节点，实现循环、分支等复杂流程控制。"
+                        },
+                        {
+                            "id": "q3",
+                            "text": "LangGraph 中状态持久化 (Checkpoint) 的主要场景是什么？",
+                            "options": [
+                                "提高计算速度",
+                                "支持人工确认 (Human-in-the-loop) 和断点恢复",
+                                "压缩图的数据量",
+                                "加密节点间的通信"
+                            ],
+                            "answer": 1,
+                            "explanation": "检查点 (Checkpoint) 将状态机归档到存储器，支持人工确认阻断、断点恢复等场景。"
+                        }
+                    ]
+                },
+                node_id=nodes["LG_STATE"].id,
+                difficulty="easy"
             )
         ]
         session.add_all(labs)

@@ -1,12 +1,12 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { 
-  MessageSquare, 
-  BookOpen, 
-  Brain, 
+import {
+  MessageSquare,
+  BookOpen,
+  Brain,
   Grid3X3,
   Shield,
   Activity,
@@ -16,121 +16,211 @@ import {
   XCircle,
   AlertCircle,
   RotateCcw,
-  LogOut
+  LogOut,
+  Loader2,
+  Code2,
+  ListChecks,
+  Send,
+  ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useSettingsStore, SUPPORTED_MODELS } from "@/stores/settings";
+import { labApi, getAuthHeaders } from "@/lib/api";
+import type { Lab, Submission } from "@/types";
 
-interface Question {
-  id: number;
+type TabMode = "code" | "quiz";
+
+interface QuizQuestion {
+  id: string;
   text: string;
   options: string[];
-  answer: number; // Index of correct option
+  answer: number;
   explanation: string;
 }
 
 export default function PracticePage() {
   const router = useRouter();
+  const { apiKeys, openaiApiKey, model, baseUrls } = useSettingsStore();
 
-  React.useEffect(() => {
+  const [tabMode, setTabMode] = useState<TabMode>("code");
+  const [labs, setLabs] = useState<Lab[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedLab, setSelectedLab] = useState<Lab | null>(null);
+  const [code, setCode] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [evalResult, setEvalResult] = useState<any>(null);
+  const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [quizAnswers, setQuizAnswers] = useState<Record<string, number>>({});
+  const [quizSubmitted, setQuizSubmitted] = useState(false);
+  const [quizScore, setQuizScore] = useState(0);
+  const [userRole, setUserRole] = useState<string>("");
+
+  useEffect(() => {
     if (typeof window !== "undefined") {
       const token = localStorage.getItem("cognilink_token");
       if (!token) {
         router.push("/login");
+      } else {
+        setUserRole(localStorage.getItem("cognilink_user_role") || "student");
       }
     }
   }, [router]);
-  const [questions] = useState<Question[]>([
-    {
-      id: 1,
-      text: "在大语言模型 RAG (检索增强生成) 系统中，切块 (Chunking) 的主要作用是什么？",
-      options: [
-        "优化模型的硬件算力分配，降低功耗",
-        "由于大模型上下文窗口限制，防止核心上下文溢出并提高检索召回率",
-        "将 PDF 文档压缩成更小的文件以便网络传输",
-        "对用户的提问进行违规词敏感性审查"
-      ],
-      answer: 1,
-      explanation: "文档切块 (Chunking) 能保证文本长度适配模型的 Token 限制。通过将大文档划分为小的语义单位，可以让向量检索更精确地召回与问题高相关的片段，避免大段无关文本干扰回答质量。"
-    },
-    {
-      id: 2,
-      text: "在 PostgreSQL 数据库中，pgvector 扩展推荐使用的主要索引类型是什么？",
-      options: [
-        "B-Tree 索引",
-        "GIN 倒排索引",
-        "HNSW (分层导航小世界) 或 IVFFlat 索引",
-        "Hash 索引"
-      ],
-      answer: 2,
-      explanation: "对于高维特征向量的近似最近邻搜索 (ANN)，pgvector 引入了 IVFFlat 和 HNSW (Hierarchical Navigable Small World) 索引类型。HNSW 提供了更高的召回率和更快的查询性能，但构建耗时相对较长。"
-    },
-    {
-      id: 3,
-      text: "在长期记忆系统 (Memory System) 中，何种技术能自动识别并消除陈旧与相冲突的历史事实？",
-      options: [
-        "将所有历史对话文本无限制塞入 Prompt 中",
-        "基于语义相似度检索进行定期自动合并归档与覆盖写入 (Upsert)",
-        "直接删除三天前的所有聊天会话",
-        "屏蔽所有历史对话记录"
-      ],
-      answer: 1,
-      explanation: "智能长期记忆管理会采用向量检索寻找语义冲突的事实（例如'我叫小明'与'我改名为小红'），检测到冲突或同类项时，通过大模型判定合并，写入最新状态并删除陈旧实体，从而降低长上下文垃圾信息干扰。"
+
+  const currentModel = SUPPORTED_MODELS.find((m) => m.id === model);
+  const provider = currentModel?.provider || "openai";
+  const apiKey = apiKeys[provider] || (provider === "openai" ? openaiApiKey : "") || "";
+  const baseUrl = baseUrls[provider] || "";
+
+  const fetchLabs = useCallback(async (mode: TabMode) => {
+    setLoading(true);
+    try {
+      const data = await labApi.listLabs({ lab_type: mode });
+      setLabs(data);
+      if (data.length > 0) {
+        const lab = await labApi.getLab(data[0].id);
+        setSelectedLab(lab);
+        setCode(lab.starter_code || "");
+        setEvalResult(null);
+        setQuizAnswers({});
+        setQuizSubmitted(false);
+        setQuizScore(0);
+        try {
+          const subs = await labApi.getSubmissions(data[0].id);
+          setSubmissions(subs);
+        } catch {
+          setSubmissions([]);
+        }
+      } else {
+        setSelectedLab(null);
+        setCode("");
+        setSubmissions([]);
+      }
+    } catch (error) {
+      console.error("Failed to fetch labs:", error);
+    } finally {
+      setLoading(false);
     }
-  ]);
+  }, []);
 
-  // 用户的回答选项 state
-  const [answers, setAnswers] = useState<Record<number, number>>({});
-  const [isSubmitted, setIsSubmitted] = useState(false);
-  const [score, setScore] = useState(0);
+  useEffect(() => {
+    fetchLabs(tabMode);
+  }, [tabMode, fetchLabs]);
 
-  const handleSelectOption = (qId: number, oIdx: number) => {
-    if (isSubmitted) return;
-    setAnswers({
-      ...answers,
-      [qId]: oIdx
-    });
+  const handleSelectLab = async (lab: Lab) => {
+    try {
+      const fullLab = await labApi.getLab(lab.id);
+      setSelectedLab(fullLab);
+      setCode(fullLab.starter_code || "");
+      setEvalResult(null);
+      setQuizAnswers({});
+      setQuizSubmitted(false);
+      setQuizScore(0);
+      try {
+        const subs = await labApi.getSubmissions(lab.id);
+        setSubmissions(subs);
+      } catch {
+        setSubmissions([]);
+      }
+    } catch (error) {
+      console.error("Failed to fetch lab:", error);
+    }
   };
 
-  const handleSubmit = () => {
-    if (Object.keys(answers).length < questions.length) {
+  const handleSubmitCode = async () => {
+    if (!selectedLab || !code) return;
+    setSubmitting(true);
+    setEvalResult(null);
+    try {
+      const result = await labApi.submitLab(
+        selectedLab.id,
+        code,
+        apiKey,
+        model,
+        baseUrl
+      );
+      setEvalResult(result);
+      try {
+        const subs = await labApi.getSubmissions(selectedLab.id);
+        setSubmissions(subs);
+      } catch {
+        // ignore
+      }
+    } catch (error) {
+      console.error("Submit failed:", error);
+      setEvalResult({
+        status: "error",
+        score: 0,
+        feedback: "提交失败，请检查 API Key 配置和网络连接",
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleSubmitQuiz = async () => {
+    if (!selectedLab) return;
+    const testCases = selectedLab.test_cases as { questions: QuizQuestion[] };
+    const questions = testCases?.questions || [];
+    if (Object.keys(quizAnswers).length < questions.length) {
       alert("请答完所有题目再提交！");
       return;
     }
-
-    let correctCount = 0;
-    questions.forEach(q => {
-      if (answers[q.id] === q.answer) {
-        correctCount += 1;
+    setSubmitting(true);
+    try {
+      const result = await labApi.submitLab(
+        selectedLab.id,
+        JSON.stringify(quizAnswers),
+        undefined,
+        undefined,
+        undefined,
+        quizAnswers
+      );
+      setEvalResult(result);
+      setQuizSubmitted(true);
+      setQuizScore(result.score);
+      try {
+        const subs = await labApi.getSubmissions(selectedLab.id);
+        setSubmissions(subs);
+      } catch {
+        // ignore
       }
-    });
-
-    const finalScore = Math.round((correctCount / questions.length) * 100);
-    setScore(finalScore);
-    setIsSubmitted(true);
+    } catch (error) {
+      console.error("Submit failed:", error);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleRetry = () => {
-    setAnswers({});
-    setIsSubmitted(false);
-    setScore(0);
+  const handleResetQuiz = () => {
+    setQuizAnswers({});
+    setQuizSubmitted(false);
+    setQuizScore(0);
+    setEvalResult(null);
   };
+
+  const quizQuestions: QuizQuestion[] =
+    tabMode === "quiz" && selectedLab?.test_cases
+      ? (selectedLab.test_cases as { questions: QuizQuestion[] }).questions || []
+      : [];
 
   return (
     <div className="flex h-screen bg-[#fafafa] dark:bg-[#0c0f1d] text-slate-800 dark:text-slate-100 font-sans">
-      
-      {/* Sidebar 侧边栏 */}
+
+      {/* Sidebar */}
       <aside className="w-72 bg-[#f9f9f9] dark:bg-[#0d0d0d] border-r border-gray-200 dark:border-gray-800 transition-all duration-300 flex flex-col shrink-0">
-        
+
         {/* Role Switcher Button */}
-        <div className="px-4 pt-4 pb-0">
-          <Link
-            href="/admin"
-            className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/40 hover:bg-indigo-650 hover:text-white transition-all text-xs font-semibold text-indigo-650 dark:text-indigo-400"
-          >
-            <Shield className="h-4 w-4 shrink-0" />
-            切换至管理后台
-          </Link>
-        </div>
+        {userRole === "admin" || userRole === "teacher" ? (
+          <div className="px-4 pt-4 pb-0">
+            <Link
+              href="/admin"
+              className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/40 hover:bg-indigo-650 hover:text-white transition-all text-xs font-semibold text-indigo-650 dark:text-indigo-400"
+            >
+              <Shield className="h-4 w-4 shrink-0" />
+              切换至管理后台
+            </Link>
+          </div>
+        ) : null}
 
         {/* New Chat Entrance */}
         <div className="p-4">
@@ -148,48 +238,28 @@ export default function PracticePage() {
           <div className="px-1 py-1">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 px-3">系统功能</p>
           </div>
-          
-          <Link
-            href="/knowledge"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
-          >
+
+          <Link href="/knowledge" className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer">
             <BookOpen className="h-4 w-4" />
             知识库
           </Link>
-          <Link
-            href="/memories"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
-          >
+          <Link href="/memories" className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer">
             <Brain className="h-4 w-4" />
             记忆
           </Link>
-
-          <Link
-            href="/profile"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
-          >
+          <Link href="/profile" className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer">
             <Activity className="h-4 w-4 text-indigo-500" />
             学习画像
           </Link>
-          <Link
-            href="/graph"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
-          >
+          <Link href="/graph" className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer">
             <Network className="h-4 w-4 text-purple-500" />
             知识图谱
           </Link>
-          <Link
-            href="/practice"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all cursor-pointer w-full bg-indigo-50 dark:bg-indigo-950/30 text-indigo-650 dark:text-indigo-400 font-semibold"
-          >
+          <Link href="/practice" className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all cursor-pointer w-full bg-indigo-50 dark:bg-indigo-950/30 text-indigo-650 dark:text-indigo-400 font-semibold">
             <Award className="h-4 w-4 text-emerald-500" />
             在线练习
           </Link>
-          
-          <Link
-            href="/"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
-          >
+          <Link href="/chat" className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer">
             <Grid3X3 className="h-4 w-4" />
             首页
           </Link>
@@ -198,9 +268,7 @@ export default function PracticePage() {
         {/* User Session Footer */}
         <div className="p-4 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between gap-3 text-xs bg-gray-50/50 dark:bg-slate-950/20">
           <div className="flex items-center gap-2 truncate">
-            <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-xs shrink-0">
-              U
-            </div>
+            <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-xs shrink-0">U</div>
             <div className="truncate text-gray-700 dark:text-gray-300">
               <span className="font-semibold block truncate leading-tight">
                 {typeof window !== "undefined" ? localStorage.getItem("cognilink_user_nickname") || "未登录" : "加载中"}
@@ -217,6 +285,7 @@ export default function PracticePage() {
                 localStorage.removeItem("cognilink_user_id");
                 localStorage.removeItem("cognilink_user_role");
                 localStorage.removeItem("cognilink_user_nickname");
+                document.cookie = "cognilink_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
                 router.push("/login");
               }
             }}
@@ -226,131 +295,345 @@ export default function PracticePage() {
             <LogOut className="h-4 w-4" />
           </button>
         </div>
-
       </aside>
 
       {/* Main Panel */}
-      <main className="flex-1 overflow-y-auto p-8 bg-white dark:bg-[#0c0f1d] flex flex-col gap-6">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">在线练习测验</h1>
-          <p className="text-sm text-slate-500 mt-1">系统将自动从您的知识库与近期交互主题中提炼核心考点，检测学习掌握程度。</p>
+      <main className="flex-1 overflow-y-auto bg-white dark:bg-[#0c0f1d] flex flex-col">
+        {/* Header with Tabs */}
+        <div className="p-8 pb-4 shrink-0">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">在线练习</h1>
+              <p className="text-sm text-slate-500 mt-1">通过代码实操和选择题检测学习掌握程度</p>
+            </div>
+            {/* Tab Switcher */}
+            <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
+              <button
+                onClick={() => setTabMode("code")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-md text-xs font-medium transition-colors ${
+                  tabMode === "code"
+                    ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                    : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                }`}
+              >
+                <Code2 className="h-3.5 w-3.5" />
+                代码实操
+              </button>
+              <button
+                onClick={() => setTabMode("quiz")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-md text-xs font-medium transition-colors ${
+                  tabMode === "quiz"
+                    ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                    : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                }`}
+              >
+                <ListChecks className="h-3.5 w-3.5" />
+                选择题
+              </button>
+            </div>
+          </div>
         </div>
 
-        {/* Score Panel on submission */}
-        {isSubmitted && (
-          <div className="bg-indigo-650/10 border-2 border-indigo-500/20 rounded-2xl p-6 flex flex-col sm:flex-row items-center justify-between gap-6 animate-in fade-in duration-300">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-full bg-indigo-500 flex items-center justify-center font-bold text-white shadow-lg shadow-indigo-500/30">
-                {score}
+        {/* Workspace */}
+        <div className="flex-1 flex min-h-0 px-8 pb-8 gap-6">
+
+          {/* Lab List Panel */}
+          <div className="w-72 shrink-0 bg-slate-50 dark:bg-[#121424] border border-slate-100 dark:border-[#1f233a] rounded-2xl p-4 overflow-y-auto">
+            <h3 className="text-xs font-semibold text-slate-500 mb-3 px-1">
+              {tabMode === "code" ? "代码实操题" : "选择题库"}
+            </h3>
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
               </div>
-              <div>
-                <h3 className="font-bold text-base text-slate-850 dark:text-white">您的测验得分为：{score} 分</h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  {score === 100 ? "太棒了！完美掌握知识！" : score >= 60 ? "合格！请结合解析继续查漏补缺。" : "不及格！建议您返回聊天继续向 Assistant 提问。"}
-                </p>
+            ) : labs.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-8">暂无题目</p>
+            ) : (
+              <div className="space-y-1.5">
+                {labs.map((lab) => (
+                  <button
+                    key={lab.id}
+                    onClick={() => handleSelectLab(lab)}
+                    className={`flex items-center gap-2 w-full px-3 py-2.5 rounded-lg text-left text-xs transition-colors border ${
+                      selectedLab?.id === lab.id
+                        ? "bg-white dark:bg-slate-900 border-indigo-100 dark:border-indigo-950 text-slate-850 dark:text-white"
+                        : "bg-transparent border-transparent text-slate-500 hover:bg-slate-100/50 dark:hover:bg-slate-800/50"
+                    }`}
+                  >
+                    <ChevronRight className="h-3 w-3 shrink-0" />
+                    <span className="truncate">{lab.title}</span>
+                  </button>
+                ))}
               </div>
-            </div>
-            <Button onClick={handleRetry} className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg h-9 font-medium px-4 shrink-0">
-              <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
-              重新测验
-            </Button>
+            )}
           </div>
-        )}
 
-        {/* Question Cards List */}
-        <div className="space-y-6 max-w-3xl">
-          {questions.map((q, qIdx) => {
-            const selectedIdx = answers[q.id];
-            const isCorrect = selectedIdx === q.answer;
-
-            return (
-              <div key={q.id} className="bg-slate-50 dark:bg-[#121424] border border-slate-100 dark:border-[#1f233a] rounded-2xl p-6 shadow-sm">
-                
-                {/* Question Header */}
-                <div className="flex items-start gap-3">
-                  <span className="w-6 h-6 rounded-lg bg-indigo-500/10 text-indigo-500 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5 font-mono">
-                    Q{qIdx + 1}
-                  </span>
-                  <h3 className="font-bold text-sm text-slate-850 dark:text-white leading-relaxed">{q.text}</h3>
+          {/* Content Panel */}
+          <div className="flex-1 min-h-0 overflow-y-auto bg-slate-50 dark:bg-[#121424] border border-slate-100 dark:border-[#1f233a] rounded-2xl p-6">
+            {!selectedLab ? (
+              <div className="flex items-center justify-center h-full text-slate-400 text-sm">
+                {loading ? "加载中..." : "请从左侧选择题目"}
+              </div>
+            ) : tabMode === "code" ? (
+              /* Code Mode */
+              <div className="flex flex-col gap-4 h-full">
+                {/* Lab Info */}
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900 dark:text-white">{selectedLab.title}</h2>
+                  {selectedLab.description && (
+                    <p className="text-xs text-slate-500 mt-1 leading-relaxed">{selectedLab.description}</p>
+                  )}
+                  <div className="flex items-center gap-2 mt-2">
+                    <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800">
+                      {selectedLab.difficulty || "medium"}
+                    </span>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                      代码实操
+                    </span>
+                  </div>
                 </div>
 
-                {/* Options List */}
-                <div className="mt-4 space-y-2 pl-9">
-                  {q.options.map((option, oIdx) => {
-                    const isSelected = selectedIdx === oIdx;
-                    
-                    let optionStyle = "border-transparent bg-white/50 dark:bg-slate-900/40 hover:bg-white dark:hover:bg-slate-900 text-slate-600 dark:text-slate-350";
-                    if (isSelected) {
-                      optionStyle = "bg-indigo-500/15 border-indigo-400 text-indigo-600 dark:text-indigo-400 font-semibold";
-                    }
+                {/* Code Editor */}
+                <div className="flex-1 min-h-0">
+                  <textarea
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    className="w-full h-full min-h-[300px] p-4 font-mono text-sm bg-slate-900 text-slate-100 rounded-xl border border-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                    placeholder="在此编写代码..."
+                    spellCheck={false}
+                  />
+                </div>
 
-                    // On submit styling
-                    if (isSubmitted) {
-                      if (oIdx === q.answer) {
-                        optionStyle = "bg-emerald-500/15 border-emerald-400 text-emerald-600 dark:text-emerald-400 font-semibold";
-                      } else if (isSelected) {
-                        optionStyle = "bg-rose-500/15 border-rose-400 text-rose-600 dark:text-rose-400 font-semibold";
-                      }
-                    }
+                {/* Submit Button */}
+                <div className="flex items-center justify-between">
+                  <div className="text-xs text-slate-400">
+                    {apiKey ? "API Key 已配置" : "请在设置中配置 API Key"}
+                  </div>
+                  <Button
+                    onClick={handleSubmitCode}
+                    disabled={submitting || !code}
+                    className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-6 h-10 font-medium"
+                  >
+                    {submitting ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                        评测中...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="h-3.5 w-3.5 mr-1.5" />
+                        提交评测
+                      </>
+                    )}
+                  </Button>
+                </div>
+
+                {/* Evaluation Result */}
+                {evalResult && (
+                  <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white ${
+                        evalResult.status === "passed" ? "bg-emerald-500" :
+                        evalResult.status === "partial" ? "bg-amber-500" :
+                        evalResult.status === "failed" ? "bg-rose-500" : "bg-slate-500"
+                      }`}>
+                        {evalResult.score}
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-sm text-slate-900 dark:text-white">
+                          评测结果: {evalResult.status === "passed" ? "通过" : evalResult.status === "partial" ? "部分通过" : evalResult.status === "failed" ? "未通过" : "错误"}
+                        </h4>
+                        <p className="text-xs text-slate-500 mt-0.5">{evalResult.feedback}</p>
+                      </div>
+                    </div>
+                    {evalResult.evaluation_result?.issues?.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">问题:</p>
+                        {evalResult.evaluation_result.issues.map((issue: string, i: number) => (
+                          <div key={i} className="flex items-start gap-2 text-xs text-slate-500">
+                            <AlertCircle className="h-3 w-3 text-rose-400 shrink-0 mt-0.5" />
+                            <span>{issue}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {evalResult.evaluation_result?.suggestions?.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">改进建议:</p>
+                        {evalResult.evaluation_result.suggestions.map((sug: string, i: number) => (
+                          <div key={i} className="flex items-start gap-2 text-xs text-slate-500">
+                            <CheckCircle className="h-3 w-3 text-emerald-400 shrink-0 mt-0.5" />
+                            <span>{sug}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Submission History */}
+                {submissions.length > 0 && (
+                  <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+                    <h4 className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2">提交历史</h4>
+                    <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                      {submissions.slice(0, 5).map((sub) => (
+                        <div key={sub.id} className="flex items-center justify-between text-xs px-2 py-1.5 rounded bg-slate-50 dark:bg-slate-800/50">
+                          <span className="text-slate-500">{new Date(sub.created_at).toLocaleString()}</span>
+                          <span className={`font-mono ${sub.status === "passed" ? "text-emerald-500" : sub.status === "failed" ? "text-rose-500" : "text-slate-400"}`}>
+                            {sub.score}分 · {sub.status}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* Quiz Mode */
+              <div className="flex flex-col gap-4">
+                {/* Lab Info */}
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900 dark:text-white">{selectedLab.title}</h2>
+                  {selectedLab.description && (
+                    <p className="text-xs text-slate-500 mt-1">{selectedLab.description}</p>
+                  )}
+                </div>
+
+                {/* Score Panel */}
+                {quizSubmitted && (
+                  <div className="bg-indigo-50 dark:bg-indigo-950/20 border-2 border-indigo-500/20 rounded-xl p-4 flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-full bg-indigo-500 flex items-center justify-center font-bold text-white shadow-lg shadow-indigo-500/30">
+                        {quizScore}
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-sm text-slate-900 dark:text-white">得分: {quizScore} 分</h3>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          {quizScore === 100 ? "完美掌握！" : quizScore >= 60 ? "合格！" : "需要继续学习"}
+                        </p>
+                      </div>
+                    </div>
+                    <Button onClick={handleResetQuiz} className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg h-9 font-medium px-4">
+                      <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+                      重新答题
+                    </Button>
+                  </div>
+                )}
+
+                {/* Questions */}
+                <div className="space-y-4">
+                  {quizQuestions.map((q, qIdx) => {
+                    const selectedIdx = quizAnswers[q.id];
+                    const isCorrect = quizSubmitted && selectedIdx === q.answer;
+                    const showCorrect = quizSubmitted && selectedIdx !== q.answer;
 
                     return (
-                      <button
-                        key={oIdx}
-                        disabled={isSubmitted}
-                        onClick={() => handleSelectOption(q.id, oIdx)}
-                        className={`flex items-center gap-3 w-full p-3 text-xs rounded-xl text-left border transition-all ${optionStyle}`}
-                      >
-                        <span className="w-5 h-5 rounded-full border border-slate-300 dark:border-slate-700 flex items-center justify-center font-semibold text-[10px] shrink-0 font-mono">
-                          {String.fromCharCode(65 + oIdx)}
-                        </span>
-                        <span>{option}</span>
-                      </button>
+                      <div key={q.id} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-5">
+                        <div className="flex items-start gap-3">
+                          <span className="w-6 h-6 rounded-lg bg-indigo-500/10 text-indigo-500 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5 font-mono">
+                            Q{qIdx + 1}
+                          </span>
+                          <h3 className="font-bold text-sm text-slate-900 dark:text-white leading-relaxed">{q.text}</h3>
+                        </div>
+                        <div className="mt-3 space-y-2 pl-9">
+                          {q.options.map((option, oIdx) => {
+                            const isSelected = selectedIdx === oIdx;
+                            let style = "border-transparent bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300";
+                            if (isSelected && !quizSubmitted) {
+                              style = "bg-indigo-500/15 border-indigo-400 text-indigo-600 dark:text-indigo-400 font-semibold";
+                            }
+                            if (quizSubmitted) {
+                              if (oIdx === q.answer) {
+                                style = "bg-emerald-500/15 border-emerald-400 text-emerald-600 dark:text-emerald-400 font-semibold";
+                              } else if (isSelected) {
+                                style = "bg-rose-500/15 border-rose-400 text-rose-600 dark:text-rose-400 font-semibold";
+                              }
+                            }
+                            return (
+                              <button
+                                key={oIdx}
+                                disabled={quizSubmitted}
+                                onClick={() => !quizSubmitted && setQuizAnswers({ ...quizAnswers, [q.id]: oIdx })}
+                                className={`flex items-center gap-3 w-full p-3 text-xs rounded-lg text-left border transition-all ${style}`}
+                              >
+                                <span className="w-5 h-5 rounded-full border border-slate-300 dark:border-slate-600 flex items-center justify-center font-semibold text-[10px] shrink-0 font-mono">
+                                  {String.fromCharCode(65 + oIdx)}
+                                </span>
+                                <span>{option}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {quizSubmitted && (
+                          <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-700 pl-9">
+                            <div className="flex items-center gap-2 text-xs mb-2">
+                              {isCorrect ? (
+                                <span className="flex items-center gap-1 text-emerald-500 font-semibold">
+                                  <CheckCircle className="h-4 w-4" /> 回答正确
+                                </span>
+                              ) : (
+                                <span className="flex items-center gap-1 text-rose-500 font-semibold">
+                                  <XCircle className="h-4 w-4" /> 正确答案: {String.fromCharCode(65 + q.answer)}
+                                </span>
+                              )}
+                            </div>
+                            <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-lg flex gap-2">
+                              <AlertCircle className="h-4 w-4 text-indigo-400 shrink-0 mt-0.5" />
+                              <div className="text-[11px] text-slate-500 leading-normal">
+                                <span className="font-semibold text-slate-600 dark:text-slate-300 block mb-1">解析:</span>
+                                {q.explanation}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
                 </div>
 
-                {/* Show explanation on submit */}
-                {isSubmitted && (
-                  <div className="mt-6 pt-5 border-t border-slate-200 dark:border-slate-800/60 pl-9 space-y-2 animate-in fade-in duration-300">
-                    <div className="flex items-center gap-2 text-xs">
-                      {isCorrect ? (
-                        <span className="flex items-center gap-1 text-emerald-500 font-semibold">
-                          <CheckCircle className="h-4 w-4" /> 回答正确！
-                        </span>
+                {/* Submit */}
+                {!quizSubmitted && (
+                  <div className="flex justify-end pt-2">
+                    <Button
+                      onClick={handleSubmitQuiz}
+                      disabled={submitting || Object.keys(quizAnswers).length < quizQuestions.length}
+                      className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-6 h-10 font-medium"
+                    >
+                      {submitting ? (
+                        <>
+                          <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                          提交中...
+                        </>
                       ) : (
-                        <span className="flex items-center gap-1 text-rose-500 font-semibold">
-                          <XCircle className="h-4 w-4" /> 回答错误！正确答案是：{String.fromCharCode(65 + q.answer)}
-                        </span>
+                        <>
+                          <Send className="h-3.5 w-3.5 mr-1.5" />
+                          提交答案
+                        </>
                       )}
-                    </div>
-                    
-                    <div className="bg-white dark:bg-slate-900/60 p-4 rounded-xl border border-slate-100 dark:border-slate-850 flex gap-2">
-                      <AlertCircle className="h-4 w-4 text-indigo-400 shrink-0 mt-0.5" />
-                      <div className="text-[11px] text-slate-400 leading-normal">
-                        <span className="font-semibold text-slate-600 dark:text-slate-300 block mb-1">题目解析：</span>
-                        {q.explanation}
-                      </div>
-                    </div>
+                    </Button>
                   </div>
                 )}
 
+                {/* Submission History */}
+                {submissions.length > 0 && (
+                  <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+                    <h4 className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2">提交历史</h4>
+                    <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                      {submissions.slice(0, 5).map((sub) => (
+                        <div key={sub.id} className="flex items-center justify-between text-xs px-2 py-1.5 rounded bg-slate-50 dark:bg-slate-800/50">
+                          <span className="text-slate-500">{new Date(sub.created_at).toLocaleString()}</span>
+                          <span className={`font-mono ${sub.status === "passed" ? "text-emerald-500" : "text-rose-500"}`}>
+                            {sub.score}分 · {sub.status}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
-            );
-          })}
-        </div>
-
-        {/* Submit controls */}
-        {!isSubmitted && (
-          <div className="max-w-3xl flex justify-end pt-4">
-            <Button 
-              onClick={handleSubmit}
-              className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-6 h-10 font-medium"
-            >
-              提交答案
-            </Button>
+            )}
           </div>
-        )}
-
+        </div>
       </main>
     </div>
   );

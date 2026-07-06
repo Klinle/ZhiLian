@@ -8,12 +8,14 @@ import asyncio
 from datetime import datetime, timedelta
 
 from core.database import get_session, async_session_maker
-from models.database import Document, DocumentChunk
+from core.dependencies import get_current_user
+from models.database import Document, DocumentChunk, User
 from models.schemas import DocumentResponse, DocumentListResponse
 from services.document_service import document_service
 from services.embedding_service import embedding_service
 from services.rag_service import rag_service
 from services.document_processor import document_processor
+from services.knowledge_extraction_service import knowledge_extraction_service
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
@@ -113,6 +115,14 @@ async def _process_document_async(
             doc.status = "completed"
             await session.commit()
             document_processor.complete_job(job_id, len(chunks) if chunks else 0)
+
+            # 知识节点自动提取（异步，不阻塞文档处理完成状态）
+            try:
+                await knowledge_extraction_service.extract_nodes_from_document(
+                    document_id, session
+                )
+            except Exception as e:
+                print(f"[KnowledgeExtraction] Error: {e}")
         except Exception as e:
             await session.rollback()
             doc = await session.get(Document, document_id)
@@ -130,6 +140,7 @@ async def upload_document(
     base_url: str = "",
     use_local_embedding: bool = False,
     session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     """Upload and process a document"""
     # Validate file type
@@ -160,6 +171,8 @@ async def upload_document(
             file_type=file_ext,
             file_path=file_path,
             status="processing",
+            owner_id=current_user.id,
+            visibility="private",
         )
         session.add(document)
         await session.commit()
@@ -188,13 +201,34 @@ async def upload_document(
 
 
 @router.get("/")
-async def list_documents(session: AsyncSession = Depends(get_session)) -> List[dict]:
-    """List all documents"""
+async def list_documents(
+    scope: str = "all",
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> List[dict]:
+    """List documents (filtered by user ownership / visibility)
+
+    scope: 'mine' = only my docs, 'shared' = only shared docs, 'all' = mine + shared
+    """
     await _reconcile_stuck_processing_documents()
 
-    result = await session.execute(
-        select(Document).order_by(Document.created_at.desc())
-    )
+    from sqlalchemy import or_
+
+    stmt = select(Document)
+    if scope == "mine":
+        stmt = stmt.where(Document.owner_id == current_user.id)
+    elif scope == "shared":
+        stmt = stmt.where(Document.visibility == "shared")
+    else:  # all
+        stmt = stmt.where(
+            or_(
+                Document.owner_id == current_user.id,
+                Document.visibility == "shared",
+            )
+        )
+    stmt = stmt.order_by(Document.created_at.desc())
+
+    result = await session.execute(stmt)
     documents = result.scalars().all()
 
     return [
@@ -204,6 +238,9 @@ async def list_documents(session: AsyncSession = Depends(get_session)) -> List[d
             "file_type": doc.file_type,
             "status": doc.status,
             "created_at": doc.created_at.isoformat(),
+            "owner_id": str(doc.owner_id) if doc.owner_id else None,
+            "visibility": doc.visibility or "private",
+            "is_owner": str(doc.owner_id) == str(current_user.id) if doc.owner_id else False,
         }
         for doc in documents
     ]
@@ -366,10 +403,14 @@ async def get_document_file(
     elif doc.file_type == ".md":
         media_type = "text/markdown; charset=utf-8"
 
+    # Use Content-Disposition: inline so browsers display PDFs in the
+    # iframe preview instead of forcing a download.  The frontend download
+    # button uses fetch+blob with an <a download> attribute, so it does
+    # not rely on the attachment header for the filename.
     return FileResponse(
         path=doc.file_path,
         media_type=media_type,
-        filename=doc.title,
+        headers={"Content-Disposition": "inline"},
     )
 
 
@@ -436,9 +477,11 @@ async def get_document_status(
 
 @router.delete("/{document_id}")
 async def delete_document(
-    document_id: str, session: AsyncSession = Depends(get_session)
+    document_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
-    """Delete a document"""
+    """Delete a document (only owner or admin can delete)"""
     from uuid import UUID
 
     result = await session.execute(
@@ -448,6 +491,10 @@ async def delete_document(
 
     if not doc:
         raise HTTPException(404, "Document not found")
+
+    # Check ownership or admin role
+    if doc.owner_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(403, "只有文档所有者或管理员可以删除文档")
 
     # Delete file
     if os.path.exists(doc.file_path):
@@ -534,8 +581,9 @@ async def search_documents(
     limit: int = 5,
     use_local_embedding: bool = False,
     session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
-    """Search for relevant document chunks"""
+    """Search for relevant document chunks (filtered by user access)"""
     if not use_local_embedding and not api_key:
         raise HTTPException(400, "API key required (or enable local embedding)")
 
@@ -547,6 +595,7 @@ async def search_documents(
         provider,
         base_url if base_url else None,
         use_local=use_local_embedding,
+        user_id=str(current_user.id),
     )
 
     return [

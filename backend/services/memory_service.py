@@ -2,6 +2,7 @@ from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from datetime import datetime
+import uuid
 
 from models.database import Memory
 from services.embedding_service import embedding_service
@@ -18,7 +19,8 @@ class MemoryService:
         source: str = "",
         provider: str = "openai",
         base_url: str = None,
-        use_local: bool = False
+        use_local: bool = False,
+        user_id: str = None,
     ) -> Memory:
         """Create a new memory with embedding"""
         embedding = await embedding_service.get_single_embedding(content, api_key, provider, base_url, use_local)
@@ -28,7 +30,8 @@ class MemoryService:
             category=category,
             importance=importance,
             source=source,
-            embedding=embedding
+            embedding=embedding,
+            user_id=uuid.UUID(user_id) if user_id else None,
         )
         session.add(memory)
         await session.commit()
@@ -42,7 +45,8 @@ class MemoryService:
         session: AsyncSession,
         provider: str = "openai",
         base_url: str = None,
-        use_local: bool = False
+        use_local: bool = False,
+        user_id: str = None,
     ) -> List[Memory]:
         """Extract important information from conversation"""
         from openai import AsyncOpenAI
@@ -120,7 +124,8 @@ Return JSON array: [{"content": "...", "category": "preference|fact|goal", "impo
                     source="extracted from conversation",
                     provider=provider,
                     base_url=base_url,
-                    use_local=use_local
+                    use_local=use_local,
+                    user_id=user_id,
                 )
                 created_memories.append(memory)
 
@@ -137,17 +142,18 @@ Return JSON array: [{"content": "...", "category": "preference|fact|goal", "impo
         limit: int = 5,
         provider: str = "openai",
         base_url: str = None,
-        use_local: bool = False
+        use_local: bool = False,
+        user_id: str = None,
     ) -> List[Memory]:
-        """Search for relevant memories"""
+        """Search for relevant memories (filtered by user_id)"""
         query_embedding = await embedding_service.get_single_embedding(query, api_key, provider, base_url, use_local)
 
-        result = await session.execute(
-            select(Memory)
-            .order_by(Memory.embedding.cosine_distance(query_embedding))
-            .limit(limit)
-        )
+        stmt = select(Memory)
+        if user_id:
+            stmt = stmt.where(Memory.user_id == uuid.UUID(user_id))
+        stmt = stmt.order_by(Memory.embedding.cosine_distance(query_embedding)).limit(limit)
 
+        result = await session.execute(stmt)
         return result.scalars().all()
 
     async def get_memory_context(
@@ -158,10 +164,11 @@ Return JSON array: [{"content": "...", "category": "preference|fact|goal", "impo
         limit: int = 5,
         provider: str = "openai",
         base_url: str = None,
-        use_local: bool = False
+        use_local: bool = False,
+        user_id: str = None,
     ) -> str:
         """Get memory context for LLM prompt"""
-        memories = await self.search_relevant_memories(query, api_key, session, limit, provider, base_url, use_local)
+        memories = await self.search_relevant_memories(query, api_key, session, limit, provider, base_url, use_local, user_id)
         if not memories:
             return ""
 
@@ -172,16 +179,20 @@ Return JSON array: [{"content": "...", "category": "preference|fact|goal", "impo
         self,
         session: AsyncSession,
         category: Optional[str] = None,
-        limit: int = 50
+        limit: int = 50,
+        user_id: str = None,
     ) -> List[Memory]:
-        """List all memories with optional category filter"""
+        """List all memories with optional category filter (filtered by user_id)"""
         query = select(Memory)
-        
+
+        if user_id:
+            query = query.where(Memory.user_id == uuid.UUID(user_id))
+
         if category:
             query = query.where(Memory.category == category)
-        
+
         query = query.order_by(Memory.importance.desc(), Memory.created_at.desc()).limit(limit)
-        
+
         result = await session.execute(query)
         return result.scalars().all()
     
@@ -190,16 +201,18 @@ Return JSON array: [{"content": "...", "category": "preference|fact|goal", "impo
         memory_id: str,
         session: AsyncSession,
         content: Optional[str] = None,
-        importance: Optional[int] = None
+        importance: Optional[int] = None,
+        user_id: str = None,
     ) -> Optional[Memory]:
-        """Update a memory"""
+        """Update a memory (filtered by user_id)"""
         from uuid import UUID
-        
-        result = await session.execute(
-            select(Memory).where(Memory.id == UUID(memory_id))
-        )
+
+        stmt = select(Memory).where(Memory.id == UUID(memory_id))
+        if user_id:
+            stmt = stmt.where(Memory.user_id == uuid.UUID(user_id))
+        result = await session.execute(stmt)
         memory = result.scalar_one_or_none()
-        
+
         if not memory:
             return None
         
@@ -213,18 +226,19 @@ Return JSON array: [{"content": "...", "category": "preference|fact|goal", "impo
         await session.refresh(memory)
         return memory
     
-    async def delete_memory(self, memory_id: str, session: AsyncSession) -> bool:
-        """Delete a memory"""
+    async def delete_memory(self, memory_id: str, session: AsyncSession, user_id: str = None) -> bool:
+        """Delete a memory (filtered by user_id)"""
         from uuid import UUID
-        
-        result = await session.execute(
-            select(Memory).where(Memory.id == UUID(memory_id))
-        )
+
+        stmt = select(Memory).where(Memory.id == UUID(memory_id))
+        if user_id:
+            stmt = stmt.where(Memory.user_id == uuid.UUID(user_id))
+        result = await session.execute(stmt)
         memory = result.scalar_one_or_none()
-        
+
         if not memory:
             return False
-        
+
         await session.delete(memory)
         await session.commit()
         return True

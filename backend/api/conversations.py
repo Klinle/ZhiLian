@@ -9,8 +9,9 @@ from typing import List, Optional
 from pydantic import BaseModel
 
 from core.database import get_session
+from core.dependencies import get_current_user
 from services.conversation_service import conversation_service
-from models.database import Conversation, Message
+from models.database import Conversation, Message, User
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
 
@@ -45,13 +46,15 @@ class ConversationResponse(BaseModel):
 @router.post("", response_model=ConversationResponse)
 async def create_conversation(
     request: ConversationCreate,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     """创建新对话"""
     conversation = await conversation_service.create_conversation(
         session=session,
         title=request.title,
-        model=request.model
+        model=request.model,
+        user_id=str(current_user.id),
     )
     return ConversationResponse(
         id=str(conversation.id),
@@ -68,13 +71,15 @@ async def create_conversation(
 async def list_conversations(
     limit: int = 20,
     offset: int = 0,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     """获取对话列表"""
     conversations = await conversation_service.list_conversations(
         session=session,
         limit=limit,
-        offset=offset
+        offset=offset,
+        user_id=str(current_user.id),
     )
     return [
         {
@@ -93,10 +98,11 @@ async def list_conversations(
 @router.get("/{conversation_id}")
 async def get_conversation(
     conversation_id: str,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     """获取对话详情及消息"""
-    conversation = await conversation_service.get_conversation(session, conversation_id)
+    conversation = await conversation_service.get_conversation(session, conversation_id, user_id=str(current_user.id))
     if not conversation:
         raise HTTPException(status_code=404, detail="对话不存在")
 
@@ -129,13 +135,15 @@ async def get_conversation(
 async def update_conversation(
     conversation_id: str,
     request: ConversationUpdate,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     """更新对话标题"""
     success = await conversation_service.update_conversation_title(
         session=session,
         conversation_id=conversation_id,
-        title=request.title
+        title=request.title,
+        user_id=str(current_user.id),
     )
     if not success:
         raise HTTPException(status_code=404, detail="对话不存在")
@@ -145,15 +153,20 @@ async def update_conversation(
 @router.get("/search")
 async def search_conversations(
     q: str,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     """搜索对话（标题和内容）"""
     if not q or len(q) < 2:
         raise HTTPException(status_code=400, detail="搜索关键词至少需要2个字符")
 
+    import uuid as _uuid
+    user_uuid = _uuid.UUID(str(current_user.id))
+
     # 搜索对话标题
     title_query = select(Conversation).where(
         Conversation.is_active == 1,
+        Conversation.user_id == user_uuid,
         Conversation.title.ilike(f"%{q}%")
     )
 
@@ -162,6 +175,7 @@ async def search_conversations(
         Message, Message.conversation_id == Conversation.id
     ).where(
         Conversation.is_active == 1,
+        Conversation.user_id == user_uuid,
         Message.content.ilike(f"%{q}%")
     ).distinct()
 
@@ -192,10 +206,11 @@ async def search_conversations(
 @router.delete("/{conversation_id}")
 async def delete_conversation(
     conversation_id: str,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     """删除对话"""
-    success = await conversation_service.delete_conversation(session, conversation_id)
+    success = await conversation_service.delete_conversation(session, conversation_id, user_id=str(current_user.id))
     if not success:
         raise HTTPException(status_code=404, detail="对话不存在")
     return {"success": True}
@@ -205,10 +220,11 @@ async def delete_conversation(
 async def add_message(
     conversation_id: str,
     request: MessageCreate,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     """添加消息到对话"""
-    conversation = await conversation_service.get_conversation(session, conversation_id)
+    conversation = await conversation_service.get_conversation(session, conversation_id, user_id=str(current_user.id))
     if not conversation:
         raise HTTPException(status_code=404, detail="对话不存在")
 

@@ -4,11 +4,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import traceback
 
 from models.schemas import ChatRequest, RAGChatRequest
+from models.database import User
 from services.llm_service import llm_service
 from services.conversation_service import conversation_service
 from services.memory_service import memory_service
 from services.tools_service import tools_service
+from services.agent_service import agent_service
 from core.database import get_session, async_session_maker
+from core.dependencies import get_current_user
 import uuid
 import asyncio
 
@@ -20,7 +23,8 @@ async def _extract_memories_background(
     api_key: str,
     provider: str = "openai",
     base_url: str = None,
-    use_local_embedding: bool = False
+    use_local_embedding: bool = False,
+    user_id: str = None,
 ):
     """Background task to extract memories from conversation"""
     try:
@@ -48,7 +52,8 @@ async def _extract_memories_background(
                 session=session,
                 provider=provider,
                 base_url=base_url,
-                use_local=use_local_embedding
+                use_local=use_local_embedding,
+                user_id=user_id,
             )
 
             if extracted:
@@ -61,16 +66,36 @@ async def _extract_memories_background(
 @router.post("/chat")
 async def chat(
     request: ChatRequest,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     """Basic chat with conversation persistence"""
+    user_id = str(current_user.id)
+
+    # Agent 自动路由（或手动指定）
+    agent_system_prompt = None
+    try:
+        agent_system_prompt, agent_name = await agent_service.route_agent(
+            message=request.message,
+            session=session,
+            api_key=request.apiKey,
+            model=request.model,
+            base_url=request.baseUrl,
+            agent_id=request.agentId,
+        )
+        if agent_name:
+            print(f"[Agent Router] Routed to: {agent_name}")
+    except Exception as e:
+        print(f"[Agent Router Error] {e}")
+
     # 如果指定了 conversation_id，使用持久化对话的上下文
     optimized_context = []
     if request.conversationId:
         optimized_context = await conversation_service.get_optimized_context(
             session=session,
             conversation_id=request.conversationId,
-            current_model=request.model
+            current_model=request.model,
+            user_id=user_id,
         )
         # 保存用户消息
         await conversation_service.add_message(
@@ -78,7 +103,8 @@ async def chat(
             conversation_id=request.conversationId,
             role="user",
             content=request.message,
-            model=request.model
+            model=request.model,
+            user_id=user_id,
         )
 
     async def generate():
@@ -93,7 +119,9 @@ async def chat(
                 use_memory=False,
                 base_url=request.baseUrl,
                 session=session,
-                history=optimized_context
+                history=optimized_context,
+                user_id=user_id,
+                system_prompt=agent_system_prompt,
             ):
                 assistant_content += chunk
                 yield chunk
@@ -105,13 +133,15 @@ async def chat(
                     conversation_id=request.conversationId,
                     role="assistant",
                     content=assistant_content,
-                    model=request.model
+                    model=request.model,
+                    user_id=user_id,
                 )
 
                 # 检查是否需要生成摘要
                 should_summary = await conversation_service.should_generate_summary(
                     session=session,
-                    conversation_id=request.conversationId
+                    conversation_id=request.conversationId,
+                    user_id=user_id,
                 )
                 if should_summary:
                     # 异步生成摘要（不阻塞响应）
@@ -120,7 +150,8 @@ async def chat(
                         conversation_service.generate_summary(
                             session=session,
                             conversation_id=request.conversationId,
-                            api_key=request.apiKey
+                            api_key=request.apiKey,
+                            user_id=user_id,
                         )
                     )
 
@@ -135,16 +166,36 @@ async def chat(
 @router.post("/chat/rag")
 async def chat_with_rag(
     request: RAGChatRequest,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     """Chat with RAG, memory and conversation persistence"""
+    user_id = str(current_user.id)
+
+    # Agent 自动路由（或手动指定）
+    agent_system_prompt = None
+    try:
+        agent_system_prompt, agent_name = await agent_service.route_agent(
+            message=request.message,
+            session=session,
+            api_key=request.apiKey,
+            model=request.model,
+            base_url=request.baseUrl,
+            agent_id=request.agentId,
+        )
+        if agent_name:
+            print(f"[Agent Router] Routed to: {agent_name}")
+    except Exception as e:
+        print(f"[Agent Router Error] {e}")
+
     # 获取优化的上下文
     optimized_context = []
     if request.conversationId:
         optimized_context = await conversation_service.get_optimized_context(
             session=session,
             conversation_id=request.conversationId,
-            current_model=request.model
+            current_model=request.model,
+            user_id=user_id,
         )
         # 保存用户消息
         await conversation_service.add_message(
@@ -152,7 +203,8 @@ async def chat_with_rag(
             conversation_id=request.conversationId,
             role="user",
             content=request.message,
-            model=request.model
+            model=request.model,
+            user_id=user_id,
         )
 
     async def generate():
@@ -169,6 +221,8 @@ async def chat_with_rag(
                 session=session,
                 history=optimized_context,
                 use_local_embedding=request.use_local_embedding,
+                user_id=user_id,
+                system_prompt=agent_system_prompt,
             ):
                 assistant_content += chunk
                 yield chunk
@@ -180,20 +234,23 @@ async def chat_with_rag(
                     conversation_id=request.conversationId,
                     role="assistant",
                     content=assistant_content,
-                    model=request.model
+                    model=request.model,
+                    user_id=user_id,
                 )
 
                 # 检查是否需要生成摘要
                 should_summary = await conversation_service.should_generate_summary(
                     session=session,
-                    conversation_id=request.conversationId
+                    conversation_id=request.conversationId,
+                    user_id=user_id,
                 )
                 if should_summary:
                     asyncio.create_task(
                         conversation_service.generate_summary(
                             session=session,
                             conversation_id=request.conversationId,
-                            api_key=request.apiKey
+                            api_key=request.apiKey,
+                            user_id=user_id,
                         )
                     )
 
@@ -205,7 +262,8 @@ async def chat_with_rag(
                             api_key=request.apiKey,
                             provider=request.model.split("-")[0] if "-" in request.model else "openai",
                             base_url=request.baseUrl,
-                            use_local_embedding=request.use_local_embedding
+                            use_local_embedding=request.use_local_embedding,
+                            user_id=user_id,
                         )
                     )
 

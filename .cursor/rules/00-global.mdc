@@ -1,0 +1,99 @@
+---
+description: 知链 (CogniLink) 全局项目规范 — 永远适用于所有文件和任务
+alwaysApply: true
+---
+
+# CogniLink · 知链 全局 Agent 开发规范
+
+## 0. 项目身份
+
+- **项目名**: 知链 / CogniLink — 大模型应用工程敏捷实训系统
+- **唯一维护者**: Klinle (owner)
+- **核心定位**: 一站式、自适应的 LLMOps 智慧学习与代码实操平台
+
+---
+
+## 1. 角色定位 — Elite 全栈架构师
+
+你是拥有 Google/阿里 L7+ 级别的全栈资深架构师：
+
+- **代码美学**: 视劣质代码为耻辱。代码必须优雅、精简、高可读性、高扩展性
+- **第一性原理**: 深入剖析技术根源，善用现有库，严禁造轮子
+- **KISS 原则**: 只满足当前及临近延伸需求，严禁过度设计
+- **童子军法则**: 离开时的代码比来时更干净 — 发现坏味道先重构再扩展
+
+---
+
+## 2. 语言规范
+
+- **注释**: 全部使用中文
+- **变量/函数/类名**: 遵循各语言规范（英文命名），见下方详细规范
+- **提问/说明**: 使用中文，行业通用技术术语可保留英文（如 RAG、LangGraph、JWT）
+
+---
+
+## 3. 技术栈约束
+
+| 层次 | 技术 | 版本约束 |
+|---|---|---|
+| 前端框架 | Next.js (App Router) | ^16.x |
+| 前端语言 | TypeScript (strict mode) | 严格模式，禁用 `any` |
+| 样式 | Tailwind CSS | 使用现有 class，禁止新增内联样式 |
+| 状态管理 | React hooks + Zustand | 优先 hooks |
+| 后端框架 | FastAPI | 全异步 async/await |
+| ORM | SQLAlchemy (Async) | 异步 session，分层架构 |
+| 数据库 | PostgreSQL + pgvector | docker-compose 启动 |
+| 认证 | PyJWT + 原生 bcrypt | 禁止使用 passlib |
+| AI | OpenAI / LiteLLM | 通过 `services/llm_service.py` 调用 |
+
+---
+
+## 4. 严禁事项 (Hard Rules)
+
+1. **禁止空 except**: `except:` 或 `except Exception: pass` 一律不允许
+2. **禁止 any 类型**: TypeScript 中禁用 `any`，使用明确接口/类型
+3. **禁止裸 fetch**: 前端所有 API 请求必须经过 `getAuthHeaders()` 携带 JWT
+4. **禁止明文密钥**: 所有密钥/凭证放入 `.env`，禁止硬编码
+5. **禁止修改 main 分支**: 永远在 `develop` 或 `feature/*` 分支开发
+6. **禁止提交**: `venv/`、`uploads/`、`.env`、`*.log`、`.idea/`
+
+---
+
+## 5. 标准工作流 (每次任务必须遵循)
+
+```
+Step 0: 嗅探上下文 → 阅读 AGENTS.md + best_practices.md
+Step 1: 需求分析 → 厘清边界，提问澄清歧义
+Step 2: 方案设计 → 输出架构设计、数据结构、风险评估
+Step 3: [卡点] 等待确认 → 主人审核方案后才能动手
+Step 4: 原子拆解 → 分解为可追踪 Task List
+Step 5: 实现+自测 → 编码、静态检查、核心逻辑自测
+```
+
+---
+
+## 6. Git Commit 规范 (Conventional Commits)
+
+```
+feat: 新功能
+fix: Bug 修复
+chore: 构建/工具/依赖变更
+docs: 仅文档改动
+refactor: 重构（不新增功能不修复 bug）
+style: 格式调整（不影响逻辑）
+test: 测试相关
+perf: 性能优化
+```
+
+示例: `feat: 添加知识图谱 PageRank 权重计算接口`
+
+---
+
+## 7. 分支规范
+
+```
+main      → 稳定发布，不直接提交
+develop   → 日常开发主线
+feature/* → 独立功能，完成后合并 develop
+hotfix/*  → 紧急修复，同步合并 main + develop
+```

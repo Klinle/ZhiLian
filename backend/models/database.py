@@ -46,7 +46,9 @@ class Document(Base):
     file_path = Column(String(500))
     status = Column(String(20), default="processing")
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+    owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)  # 文档所有者
+    visibility = Column(String(20), default="private")  # private, shared
+
     chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
 
 
@@ -61,6 +63,7 @@ class DocumentChunk(Base):
     element_type = Column(String(50), nullable=True)    # 元素类型: Title/NarrativeText/Table/ListItem
     page_number = Column(Integer, nullable=True)         # 页码
     chunk_metadata = Column(JSON, nullable=True)         # 扩展元信息 (JSON)
+    node_id = Column(UUID(as_uuid=True), ForeignKey("knowledge_nodes.id", ondelete="SET NULL"), nullable=True)  # 关联知识节点
 
     document = relationship("Document", back_populates="chunks")
 
@@ -177,6 +180,7 @@ class Lab(Base):
     test_cases = Column(JSON, nullable=True)
     node_id = Column(UUID(as_uuid=True), ForeignKey("knowledge_nodes.id"), nullable=True)
     difficulty = Column(String(20), default="medium")  # easy, medium, hard
+    lab_type = Column(String(20), default="code")  # code, quiz
     created_at = Column(DateTime, default=datetime.utcnow)
 
     node = relationship("KnowledgeNode", back_populates="labs")

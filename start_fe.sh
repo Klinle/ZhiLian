@@ -1,3 +1,3 @@
 #!/bin/bash
-cd /Users/lv/Workspace/knowledgeAssistant/frontend
+cd "$(dirname "$0")/frontend"
 npm run dev

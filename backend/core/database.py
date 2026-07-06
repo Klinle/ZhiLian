@@ -21,6 +21,13 @@ async def init_db():
             "ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS element_type VARCHAR(50)",
             "ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS page_number INTEGER",
             "ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS chunk_metadata JSON",
+            "ALTER TABLE documents ADD COLUMN IF NOT EXISTS owner_id UUID",
+            "ALTER TABLE documents ADD COLUMN IF NOT EXISTS visibility VARCHAR(20) DEFAULT 'private'",
+            "ALTER TABLE labs ADD COLUMN IF NOT EXISTS lab_type VARCHAR(20) DEFAULT 'code'",
+            "ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS node_id UUID",
+            "ALTER TABLE memories ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id) ON DELETE CASCADE",
+            "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id) ON DELETE CASCADE",
+            "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS agent_id UUID REFERENCES agents(id) ON DELETE SET NULL",
         ]
         for stmt in alter_statements:
             await conn.execute(text(stmt))

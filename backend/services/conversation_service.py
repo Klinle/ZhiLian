@@ -47,7 +47,8 @@ class ConversationService:
         self,
         session: AsyncSession,
         title: Optional[str] = None,
-        model: str = "deepseek-v4-flash"
+        model: str = "deepseek-v4-flash",
+        user_id: str = None,
     ) -> Conversation:
         """创建新对话"""
         conversation = Conversation(
@@ -58,7 +59,8 @@ class ConversationService:
             updated_at=datetime.utcnow(),
             message_count=0,
             total_tokens=0,
-            is_active=1
+            is_active=1,
+            user_id=uuid.UUID(user_id) if user_id else None,
         )
         session.add(conversation)
         await session.commit()
@@ -68,15 +70,17 @@ class ConversationService:
     async def get_conversation(
         self,
         session: AsyncSession,
-        conversation_id: str
+        conversation_id: str,
+        user_id: str = None,
     ) -> Optional[Conversation]:
-        """获取对话"""
-        result = await session.execute(
-            select(Conversation).where(
-                Conversation.id == conversation_id,
-                Conversation.is_active == 1
-            )
+        """获取对话（可选按 user_id 过滤）"""
+        stmt = select(Conversation).where(
+            Conversation.id == conversation_id,
+            Conversation.is_active == 1,
         )
+        if user_id:
+            stmt = stmt.where(Conversation.user_id == uuid.UUID(user_id))
+        result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
     async def get_conversation_messages(
@@ -117,7 +121,8 @@ class ConversationService:
         conversation_id: str,
         role: str,
         content: str,
-        model: str = "deepseek-v4-flash"
+        model: str = "deepseek-v4-flash",
+        user_id: str = None,
     ) -> Message:
         """添加消息到对话"""
         # 计算 token
@@ -135,7 +140,7 @@ class ConversationService:
         session.add(message)
 
         # 更新对话统计
-        conversation = await self.get_conversation(session, str(conversation_id))
+        conversation = await self.get_conversation(session, str(conversation_id), user_id=user_id)
         if conversation:
             conversation.message_count += 1
             conversation.total_tokens += tokens
@@ -149,7 +154,8 @@ class ConversationService:
         self,
         session: AsyncSession,
         conversation_id: str,
-        api_key: str
+        api_key: str,
+        user_id: str = None,
     ) -> str:
         """
         生成对话摘要 - 将早期对话压缩为摘要
@@ -193,7 +199,7 @@ class ConversationService:
         summary = "".join(summary_chunks)
 
         # 更新对话摘要
-        conversation = await self.get_conversation(session, conversation_id)
+        conversation = await self.get_conversation(session, conversation_id, user_id=user_id)
         if conversation:
             conversation.summary = summary
             conversation.summary_tokens = count_tokens(summary)
@@ -211,7 +217,8 @@ class ConversationService:
         session: AsyncSession,
         conversation_id: str,
         current_model: str = "deepseek-v4-flash",
-        max_tokens: int = MAX_CONTEXT_TOKENS
+        max_tokens: int = MAX_CONTEXT_TOKENS,
+        user_id: str = None,
     ) -> List[Dict[str, str]]:
         """
         获取优化的上下文 - 智能选择消息和摘要
@@ -220,7 +227,7 @@ class ConversationService:
         2. 早期消息用摘要替代
         3. 如果仍超限制，裁剪中间部分
         """
-        conversation = await self.get_conversation(session, conversation_id)
+        conversation = await self.get_conversation(session, conversation_id, user_id=user_id)
         if not conversation:
             return []
 
@@ -264,10 +271,11 @@ class ConversationService:
     async def should_generate_summary(
         self,
         session: AsyncSession,
-        conversation_id: str
+        conversation_id: str,
+        user_id: str = None,
     ) -> bool:
         """判断是否需要生成摘要"""
-        conversation = await self.get_conversation(session, conversation_id)
+        conversation = await self.get_conversation(session, conversation_id, user_id=user_id)
         if not conversation:
             return False
 
@@ -287,25 +295,25 @@ class ConversationService:
         self,
         session: AsyncSession,
         limit: int = 20,
-        offset: int = 0
+        offset: int = 0,
+        user_id: str = None,
     ) -> List[Conversation]:
         """列出用户的对话历史"""
-        result = await session.execute(
-            select(Conversation)
-            .where(Conversation.is_active == 1)
-            .order_by(desc(Conversation.updated_at))
-            .limit(limit)
-            .offset(offset)
-        )
+        stmt = select(Conversation).where(Conversation.is_active == 1)
+        if user_id:
+            stmt = stmt.where(Conversation.user_id == uuid.UUID(user_id))
+        stmt = stmt.order_by(desc(Conversation.updated_at)).limit(limit).offset(offset)
+        result = await session.execute(stmt)
         return result.scalars().all()
 
     async def delete_conversation(
         self,
         session: AsyncSession,
-        conversation_id: str
+        conversation_id: str,
+        user_id: str = None,
     ) -> bool:
         """软删除对话"""
-        conversation = await self.get_conversation(session, conversation_id)
+        conversation = await self.get_conversation(session, conversation_id, user_id)
         if conversation:
             conversation.is_active = 0
             await session.commit()
@@ -316,10 +324,11 @@ class ConversationService:
         self,
         session: AsyncSession,
         conversation_id: str,
-        title: str
+        title: str,
+        user_id: str = None,
     ) -> bool:
         """更新对话标题"""
-        conversation = await self.get_conversation(session, conversation_id)
+        conversation = await self.get_conversation(session, conversation_id, user_id)
         if conversation:
             conversation.title = title
             await session.commit()

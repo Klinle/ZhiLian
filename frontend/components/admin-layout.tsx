@@ -6,12 +6,8 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   BookOpen,
-  GitBranch,
-  Key,
-  ShieldAlert,
   Users,
   Settings,
-  HelpCircle,
   Menu,
   ChevronLeft,
   ChevronRight,
@@ -19,7 +15,10 @@ import {
   MessageSquare,
   ChevronDown,
   User,
-  LogOut
+  LogOut,
+  GraduationCap,
+  Award,
+  Bot,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -61,6 +60,7 @@ export default function AdminLayout({ children, activePath }: AdminLayoutProps) 
       localStorage.removeItem("cognilink_user_id");
       localStorage.removeItem("cognilink_user_role");
       localStorage.removeItem("cognilink_user_nickname");
+      document.cookie = "cognilink_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
       router.push("/login");
     }
   };
@@ -81,48 +81,24 @@ export default function AdminLayout({ children, activePath }: AdminLayoutProps) 
       path: "/admin/knowledge",
     },
     {
-      title: "意图管理",
-      icon: GitBranch,
-      path: "/admin/intents",
-      badge: "配置"
-    },
-    {
-      title: "数据通道",
-      icon: GitBranch,
-      path: "/admin/pipeline",
-      children: [
-        { title: "流水线管理", path: "/admin/pipeline" },
-        { title: "流水线任务", path: "/admin/pipeline/tasks" }
-      ]
-    },
-    {
-      title: "关键词映射",
-      icon: Key,
-      path: "/admin/keywords",
-    },
-    {
-      title: "敏感词库",
-      icon: ShieldAlert,
-      path: "/admin/sensitive",
-    },
-    {
-      title: "检索",
-      isHeader: true,
-    },
-    {
       title: "用户管理",
       icon: Users,
       path: "/admin/users",
     },
     {
-      title: "示例问题",
-      icon: HelpCircle,
-      path: "/admin/questions",
+      title: "学员概览",
+      icon: GraduationCap,
+      path: "/admin/students",
     },
     {
-      title: "系统设置",
-      icon: Settings,
-      path: "/admin/settings",
+      title: "实验管理",
+      icon: Award,
+      path: "/admin/labs",
+    },
+    {
+      title: "Agent 管理",
+      icon: Bot,
+      path: "/admin/agents",
     },
   ];
 
@@ -143,7 +119,7 @@ export default function AdminLayout({ children, activePath }: AdminLayoutProps) 
             </div>
             {!collapsed && (
               <div className="flex flex-col">
-                <span className="font-bold text-sm text-white tracking-wider uppercase leading-none">Ragent 管理后台</span>
+                <span className="font-bold text-sm text-white tracking-wider uppercase leading-none">CogniLink 管理后台</span>
                 <span className="text-[10px] text-indigo-400 mt-1 font-mono">Knowledge Console</span>
               </div>
             )}
@@ -183,37 +159,12 @@ export default function AdminLayout({ children, activePath }: AdminLayoutProps) 
                     {!collapsed && <span>{item.title}</span>}
                   </div>
 
-                  {!collapsed && item.badge && (
-                    <span className="text-[9px] font-semibold bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded">
-                      {item.badge}
-                    </span>
-                  )}
-
                   {collapsed && (
                     <div className="absolute left-full ml-2 px-2 py-1 bg-slate-900 text-slate-100 text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none shadow-md z-40">
                       {item.title}
                     </div>
                   )}
                 </Link>
-                
-                {/* Nested items if not collapsed and has childs */}
-                {!collapsed && item.children && isSelected && (
-                  <div className="ml-7 mt-1.5 space-y-1 pl-2 border-l border-slate-800">
-                    {item.children.map((child, cIdx) => (
-                      <Link
-                        key={cIdx}
-                        href={child.path}
-                        className={`block py-1.5 px-2 text-xs rounded transition-colors ${
-                          pathname === child.path
-                            ? "text-indigo-400 font-semibold"
-                            : "text-slate-500 hover:text-slate-300"
-                        }`}
-                      >
-                        {child.title}
-                      </Link>
-                    ))}
-                  </div>
-                )}
               </div>
             );
           })}
@@ -305,7 +256,7 @@ export default function AdminLayout({ children, activePath }: AdminLayoutProps) 
                   <button
                     onClick={() => {
                       setShowProfileMenu(false);
-                      router.push("/");
+                      router.push("/chat");
                     }}
                     className="w-full text-left px-4 py-2 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50 flex items-center gap-2"
                   >

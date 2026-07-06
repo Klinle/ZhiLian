@@ -105,7 +105,6 @@ export const PROVIDERS = [
     name: "DeepSeek",
     keyName: "DEEPSEEK_API_KEY",
     baseUrlPlaceholder: "https://api.deepseek.com/v1",
-    defaultApiKey: "sk-c81b285c96e14e38b3b15aa43be35140",
     defaultBaseUrl: "https://api.deepseek.com/v1",
   },
   {
@@ -157,6 +156,7 @@ interface SettingsStore {
   // Feature toggles (persisted)
   useRAG: boolean;
   useMemory: boolean;
+  useTools: boolean;
   useLocalEmbedding: boolean;
 
   // Actions
@@ -167,6 +167,7 @@ interface SettingsStore {
   setSelectedProvider: (provider: string) => void;
   setUseRAG: (value: boolean) => void;
   setUseMemory: (value: boolean) => void;
+  setUseTools: (value: boolean) => void;
   setUseLocalEmbedding: (value: boolean) => void;
   getEffectiveApiKey: () => string;
 }
@@ -179,9 +180,7 @@ export const useSettingsStore = create<SettingsStore>()(
       model: "deepseek-v4-flash",
 
       // New
-      apiKeys: {
-        deepseek: "sk-c81b285c96e14e38b3b15aa43be35140",
-      },
+      apiKeys: {},
       baseUrls: {
         deepseek: "https://api.deepseek.com/v1",
       },
@@ -190,7 +189,8 @@ export const useSettingsStore = create<SettingsStore>()(
       // Feature toggles
       useRAG: false,
       useMemory: false,
-      useLocalEmbedding: true,
+      useTools: false,
+      useLocalEmbedding: false,
 
       setOpenaiApiKey: (key) => set({ openaiApiKey: key }),
       setModel: (model) => set({ model }),
@@ -205,6 +205,7 @@ export const useSettingsStore = create<SettingsStore>()(
       setSelectedProvider: (provider) => set({ selectedProvider: provider }),
       setUseRAG: (value) => set({ useRAG: value }),
       setUseMemory: (value) => set({ useMemory: value }),
+      setUseTools: (value) => set({ useTools: value }),
       setUseLocalEmbedding: (value) => set({ useLocalEmbedding: value }),
       getEffectiveApiKey: () => {
         const state = get();

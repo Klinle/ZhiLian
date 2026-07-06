@@ -8,7 +8,6 @@ import {
   FileText,
   Trash2,
   Loader2,
-  ArrowLeft,
   Check,
   Clock,
   X,
@@ -17,8 +16,18 @@ import {
   FileDigit,
   Download,
   RotateCcw,
+  Shield,
+  MessageSquare,
+  BookOpen,
+  Brain,
+  Activity,
+  Network,
+  Award,
+  Grid3X3,
+  LogOut,
+  Settings,
 } from "lucide-react";
-import { API_BASE_URL, getAuthHeaders } from "@/lib/api";
+import { API_BASE_URL, getAuthHeaders, getAuthHeaderOnly } from "@/lib/api";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -28,7 +37,12 @@ interface Document {
   file_type: string;
   status: string;
   created_at: string;
+  owner_id?: string | null;
+  visibility?: string;
+  is_owner?: boolean;
 }
+
+type DocScope = "all" | "mine" | "shared";
 
 interface Toast {
   id: string;
@@ -57,17 +71,22 @@ const EMBEDDING_PROVIDERS = ["openai", "alibaba", "zhipu", "moonshot"];
 export default function KnowledgePage() {
   const router = useRouter();
 
+  const [userRole, setUserRole] = useState<string>("");
+
   // 鉴权检查
   useEffect(() => {
     if (typeof window !== "undefined") {
       const token = localStorage.getItem("cognilink_token");
       if (!token) {
         router.push("/login");
+      } else {
+        setUserRole(localStorage.getItem("cognilink_user_role") || "student");
       }
     }
   }, [router]);
 
   const [documents, setDocuments] = useState<Document[]>([]);
+  const [scope, setScope] = useState<DocScope>("all");
   const [isUploading, setIsUploading] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isDragging, setIsDragging] = useState(false);
@@ -121,7 +140,7 @@ export default function KnowledgePage() {
 
   const fetchDocuments = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/documents/`, {
+      const response = await fetch(`${API_BASE_URL}/api/documents/?scope=${scope}`, {
         headers: getAuthHeaders()
       });
       if (response.ok) {
@@ -134,7 +153,7 @@ export default function KnowledgePage() {
     } finally {
       setIsLoading(false);
     }
-  }, [showToast]);
+  }, [showToast, scope]);
 
   useEffect(() => {
     fetchDocuments();
@@ -146,6 +165,7 @@ export default function KnowledgePage() {
       try {
         const response = await fetch("http://localhost:11434/api/tags", {
           method: "GET",
+          signal: AbortSignal.timeout(3000),
         });
         if (response.ok) {
           const data = await response.json();
@@ -161,10 +181,17 @@ export default function KnowledgePage() {
       }
     };
     checkOllama();
-    // Check every 10 seconds
-    const interval = setInterval(checkOllama, 10000);
+    // Check every 30 seconds (less aggressive to reduce console noise)
+    const interval = setInterval(checkOllama, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  // Auto-reset useLocalEmbedding when Ollama is not available
+  useEffect(() => {
+    if (useLocalEmbedding && !localOllamaStatus) {
+      setUseLocalEmbedding(false);
+    }
+  }, [useLocalEmbedding, localOllamaStatus, setUseLocalEmbedding]);
 
   // Fetch detailed processing status for documents
   const fetchProcessingStatus = useCallback(async (docId: string) => {
@@ -202,6 +229,15 @@ export default function KnowledgePage() {
   }, [documents, fetchDocuments, fetchProcessingStatus]);
 
   const processFile = async (file: File) => {
+    // If using local embedding, verify Ollama is actually available
+    if (useLocalEmbedding && !localOllamaStatus) {
+      showToast(
+        "error",
+        "本地 Ollama 未运行，请先启动 Ollama 或关闭本地 Embedding 开关",
+      );
+      return;
+    }
+
     // If using local embedding, don't need cloud API key
     if (!useLocalEmbedding && !apiKey) {
       showToast(
@@ -252,6 +288,7 @@ export default function KnowledgePage() {
         `${API_BASE_URL}/api/documents/upload?${params.toString()}`,
         {
           method: "POST",
+          headers: getAuthHeaderOnly(),
           body: formData,
         },
       );
@@ -707,32 +744,125 @@ export default function KnowledgePage() {
         ))}
       </div>
 
-      {/* Sidebar */}
-      <aside className="w-64 bg-sidebar-background border-r border-sidebar-border flex flex-col">
+      {/* Sidebar 侧边栏 */}
+      <aside className="w-72 bg-[#f9f9f9] dark:bg-[#0d0d0d] border-r border-gray-200 dark:border-gray-800 transition-all duration-300 flex flex-col shrink-0">
+
+        {/* 角色切换按钮 */}
+        {userRole === "admin" || userRole === "teacher" ? (
+          <div className="px-4 pt-4 pb-0">
+            <Link
+              href="/admin"
+              className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/40 hover:bg-indigo-650 hover:text-white transition-all text-xs font-semibold text-indigo-650 dark:text-indigo-400"
+            >
+              <Shield className="h-4 w-4 shrink-0" />
+              切换至管理后台
+            </Link>
+          </div>
+        ) : null}
+
+        {/* 新聊天入口 */}
         <div className="p-4">
           <Link
             href="/chat"
-            className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg border border-sidebar-border hover:bg-sidebar-accent transition-colors text-sm font-medium"
+            className="flex items-center gap-3 w-full px-4 py-3 rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700 hover:shadow-sm transition-all text-sm font-medium text-gray-700 dark:text-gray-200"
           >
-            <ArrowLeft className="h-4 w-4" />
-            返回聊天
+            <MessageSquare className="h-4 w-4 text-gray-500" />
+            开始新聊天
           </Link>
         </div>
 
-        <nav className="flex-1 px-2">
+        {/* 导航 */}
+        <nav className="flex-1 overflow-y-auto px-3 space-y-0.5">
+          <div className="px-1 py-1">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 px-3">系统功能</p>
+          </div>
+
           <Link
-            href="/"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-muted-foreground hover:bg-sidebar-accent hover:text-foreground transition-colors cursor-pointer"
+            href="/knowledge"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all cursor-pointer w-full bg-indigo-50 dark:bg-indigo-950/30 text-indigo-650 dark:text-indigo-400 font-semibold"
           >
+            <BookOpen className="h-4 w-4" />
+            知识库
+          </Link>
+          <Link
+            href="/memories"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
+          >
+            <Brain className="h-4 w-4" />
+            记忆
+          </Link>
+          <Link
+            href="/profile"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
+          >
+            <Activity className="h-4 w-4 text-indigo-500" />
+            学习画像
+          </Link>
+          <Link
+            href="/graph"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
+          >
+            <Network className="h-4 w-4 text-purple-500" />
+            知识图谱
+          </Link>
+          <Link
+            href="/practice"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
+          >
+            <Award className="h-4 w-4 text-emerald-500" />
+            在线练习
+          </Link>
+          <Link
+            href="/chat"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
+          >
+            <Grid3X3 className="h-4 w-4" />
             首页
           </Link>
-          <Link
-            href="/settings"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-muted-foreground hover:bg-sidebar-accent hover:text-foreground transition-colors cursor-pointer"
-          >
-            设置
-          </Link>
         </nav>
+
+        {/* 用户信息底栏 */}
+        <div className="p-4 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between gap-3 text-xs bg-gray-50/50 dark:bg-slate-950/20">
+          <div className="flex items-center gap-2 truncate">
+            <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-xs shrink-0">
+              U
+            </div>
+            <div className="truncate text-gray-700 dark:text-gray-300">
+              <span className="font-semibold block truncate leading-tight">
+                {typeof window !== "undefined" ? localStorage.getItem("cognilink_user_nickname") || "未登录" : "加载中"}
+              </span>
+              <span className="text-[10px] text-gray-400 block mt-0.5 capitalize">
+                {typeof window !== "undefined" ? localStorage.getItem("cognilink_user_role") || "student" : "student"}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <Link
+              href="/settings"
+              className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 rounded-lg transition-colors"
+              title="设置"
+            >
+              <Settings className="h-4 w-4" />
+            </Link>
+            <button
+              onClick={() => {
+                if (confirm("确认退出登录？")) {
+                  localStorage.removeItem("cognilink_token");
+                  localStorage.removeItem("cognilink_user_id");
+                  localStorage.removeItem("cognilink_user_role");
+                  localStorage.removeItem("cognilink_user_nickname");
+                  document.cookie = "cognilink_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+                  router.push("/login");
+                }
+              }}
+              className="p-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-500 rounded-lg transition-colors"
+              title="退出登录"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
       </aside>
 
       {/* Main Content */}
@@ -847,6 +977,26 @@ export default function KnowledgePage() {
             )}
           </div>
 
+          {/* Scope Tabs */}
+          <div className="flex items-center gap-2 mb-4">
+            {(["all", "mine", "shared"] as DocScope[]).map((s) => (
+              <button
+                key={s}
+                onClick={() => {
+                  setScope(s);
+                  setIsLoading(true);
+                }}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  scope === s
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover:bg-muted/80"
+                }`}
+              >
+                {s === "all" ? "全部文档" : s === "mine" ? "我的文档" : "共享文档"}
+              </button>
+            ))}
+          </div>
+
           {/* Documents List */}
           <div className="border border-border rounded-xl overflow-hidden">
             {isLoading ? (
@@ -889,6 +1039,21 @@ export default function KnowledgePage() {
                                 {getStatusIcon(doc.status)}
                                 {getStatusText(doc.status)}
                               </span>
+                              {doc.visibility === "shared" && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+                                  共享
+                                </span>
+                              )}
+                              {doc.visibility === "private" && doc.is_owner && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-50 dark:bg-gray-900/60 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700">
+                                  私有
+                                </span>
+                              )}
+                              {doc.is_owner === false && doc.visibility === "shared" && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                                  他人共享
+                                </span>
+                              )}
                             </div>
                             {/* Processing Progress Bar */}
                             {doc.status === "processing" &&

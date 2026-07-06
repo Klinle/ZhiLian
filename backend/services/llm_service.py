@@ -43,11 +43,17 @@ class LLMService:
         session: Optional[AsyncSession] = None,
         history: Optional[List[Dict[str, str]]] = None,
         use_local_embedding: bool = False,
+        user_id: str = None,
+        system_prompt: Optional[str] = None,
     ) -> AsyncIterable[str]:
         """Stream chat response from LLM with optional RAG, memory, and tools."""
 
         # Build system prompt with RAG and memory context
         system_parts: list[str] = []
+
+        # Inject Agent system_prompt if provided (highest priority)
+        if system_prompt:
+            system_parts.append(system_prompt)
 
         if use_rag and session:
             try:
@@ -58,6 +64,7 @@ class LLMService:
                     provider="openai",
                     base_url=base_url,
                     use_local=use_local_embedding,
+                    user_id=user_id,
                 )
                 if rag_context:
                     system_parts.append(
@@ -71,7 +78,7 @@ class LLMService:
             try:
                 memory_context = await memory_service.get_memory_context(
                     message, api_key, session, provider="openai", base_url=base_url,
-                    use_local=use_local_embedding
+                    use_local=use_local_embedding, user_id=user_id
                 )
                 if memory_context:
                     system_parts.append(memory_context)

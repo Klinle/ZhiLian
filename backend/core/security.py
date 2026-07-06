@@ -2,7 +2,9 @@ from datetime import datetime, timedelta
 import jwt
 import bcrypt
 
-SECRET_KEY = "cognilink-super-secret-key-that-should-be-changed-in-production"
+from core.config import settings
+
+SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 

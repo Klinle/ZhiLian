@@ -10,12 +10,13 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Key, Bot, ArrowLeft, Check, ChevronDown, Eye, EyeOff, Globe } from 'lucide-react';
+import { Key, Bot, Check, ChevronDown, Eye, EyeOff, Globe, MessageSquare, BookOpen, Brain, Activity, Network, Award, Grid3X3, Shield, LogOut, Settings } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
 export default function SettingsPage() {
   const router = useRouter();
+  const [userRole, setUserRole] = useState<string>('');
 
   // 鉴权检查
   useEffect(() => {
@@ -23,6 +24,8 @@ export default function SettingsPage() {
       const token = localStorage.getItem('cognilink_token');
       if (!token) {
         router.push('/login');
+      } else {
+        setUserRole(localStorage.getItem('cognilink_user_role') || 'student');
       }
     }
   }, [router]);
@@ -59,23 +62,125 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-background flex">
-      {/* Sidebar */}
-      <aside className="w-64 bg-sidebar-background border-r border-sidebar-border flex flex-col">
+      {/* Sidebar 侧边栏 */}
+      <aside className="w-72 bg-[#f9f9f9] dark:bg-[#0d0d0d] border-r border-gray-200 dark:border-gray-800 transition-all duration-300 flex flex-col shrink-0">
+
+        {/* 角色切换按钮 */}
+        {userRole === 'admin' || userRole === 'teacher' ? (
+          <div className="px-4 pt-4 pb-0">
+            <Link
+              href="/admin"
+              className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/40 hover:bg-indigo-650 hover:text-white transition-all text-xs font-semibold text-indigo-650 dark:text-indigo-400"
+            >
+              <Shield className="h-4 w-4 shrink-0" />
+              切换至管理后台
+            </Link>
+          </div>
+        ) : null}
+
+        {/* 新聊天入口 */}
         <div className="p-4">
           <Link
             href="/chat"
-            className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg border border-sidebar-border hover:bg-sidebar-accent transition-colors text-sm font-medium"
+            className="flex items-center gap-3 w-full px-4 py-3 rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700 hover:shadow-sm transition-all text-sm font-medium text-gray-700 dark:text-gray-200"
           >
-            <ArrowLeft className="h-4 w-4" />
-            返回聊天
+            <MessageSquare className="h-4 w-4 text-gray-500" />
+            开始新聊天
           </Link>
         </div>
 
-        <nav className="flex-1 px-2">
-          <Link href="/" className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-muted-foreground hover:bg-sidebar-accent hover:text-foreground transition-colors cursor-pointer">
+        {/* 导航 */}
+        <nav className="flex-1 overflow-y-auto px-3 space-y-0.5">
+          <div className="px-1 py-1">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 px-3">系统功能</p>
+          </div>
+
+          <Link
+            href="/knowledge"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
+          >
+            <BookOpen className="h-4 w-4" />
+            知识库
+          </Link>
+          <Link
+            href="/memories"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
+          >
+            <Brain className="h-4 w-4" />
+            记忆
+          </Link>
+          <Link
+            href="/profile"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
+          >
+            <Activity className="h-4 w-4 text-indigo-500" />
+            学习画像
+          </Link>
+          <Link
+            href="/graph"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
+          >
+            <Network className="h-4 w-4 text-purple-500" />
+            知识图谱
+          </Link>
+          <Link
+            href="/practice"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
+          >
+            <Award className="h-4 w-4 text-emerald-500" />
+            在线练习
+          </Link>
+          <Link
+            href="/chat"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
+          >
+            <Grid3X3 className="h-4 w-4" />
             首页
           </Link>
         </nav>
+
+        {/* 用户信息底栏 */}
+        <div className="p-4 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between gap-3 text-xs bg-gray-50/50 dark:bg-slate-950/20">
+          <div className="flex items-center gap-2 truncate">
+            <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-xs shrink-0">
+              U
+            </div>
+            <div className="truncate text-gray-700 dark:text-gray-300">
+              <span className="font-semibold block truncate leading-tight">
+                {typeof window !== 'undefined' ? localStorage.getItem('cognilink_user_nickname') || '未登录' : '加载中'}
+              </span>
+              <span className="text-[10px] text-gray-400 block mt-0.5 capitalize">
+                {typeof window !== 'undefined' ? localStorage.getItem('cognilink_user_role') || 'student' : 'student'}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <Link
+              href="/settings"
+              className="p-1.5 bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 rounded-lg transition-colors"
+              title="设置"
+            >
+              <Settings className="h-4 w-4" />
+            </Link>
+            <button
+              onClick={() => {
+                if (confirm('确认退出登录？')) {
+                  localStorage.removeItem('cognilink_token');
+                  localStorage.removeItem('cognilink_user_id');
+                  localStorage.removeItem('cognilink_user_role');
+                  localStorage.removeItem('cognilink_user_nickname');
+                  document.cookie = 'cognilink_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+                  router.push('/login');
+                }
+              }}
+              className="p-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-500 rounded-lg transition-colors"
+              title="退出登录"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
       </aside>
 
       {/* Main Content */}

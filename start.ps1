@@ -93,12 +93,23 @@ if (-not $SkipBackend) {
         Pop-Location
     }
 
+    # 终止已有的后端进程（避免端口 8000 冲突）
+    $existingProcs = Get-Process -Name python -ErrorAction SilentlyContinue | Where-Object {
+        (Get-CimInstance Win32_Process -Filter "ProcessId=$($_.Id)" -ErrorAction SilentlyContinue).CommandLine -like "*main.py*"
+    }
+    if ($existingProcs) {
+        Write-Host "  检测到已有的后端进程，正在终止..." -ForegroundColor DarkYellow
+        $existingProcs | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+        Start-Sleep -Seconds 2
+        Write-Host "  已终止旧进程" -ForegroundColor Green
+    }
+
     # 在新窗口启动后端
     Start-Process powershell -ArgumentList "-NoExit", "-Command", "
         Write-Host '===== OpenKnowledge 后端 (FastAPI) =====' -ForegroundColor Cyan
         Write-Host ''
         Set-Location '$backendDir'
-        Write-Host '启动后端服务 http://localhost:8000 ...' -ForegroundColor Yellow
+        Write-Host '启动后端服务 http://localhost:8000 (热重载已启用)...' -ForegroundColor Yellow
         Write-Host ''
         & '$pythonExe' 'main.py'
         Write-Host ''
@@ -152,6 +163,17 @@ if (-not $SkipFrontend) {
         Push-Location $frontendDir
         npm install
         Pop-Location
+    }
+
+    # 终止已有的前端进程（避免端口 3000 冲突）
+    $existingNode = Get-Process -Name node -ErrorAction SilentlyContinue | Where-Object {
+        (Get-CimInstance Win32_Process -Filter "ProcessId=$($_.Id)" -ErrorAction SilentlyContinue).CommandLine -like "*next*"
+    }
+    if ($existingNode) {
+        Write-Host "  检测到已有的前端进程，正在终止..." -ForegroundColor DarkYellow
+        $existingNode | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+        Start-Sleep -Seconds 2
+        Write-Host "  已终止旧进程" -ForegroundColor Green
     }
 
     # 在新窗口启动前端

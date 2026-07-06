@@ -32,7 +32,9 @@ import {
   Activity,
   Network,
   Award,
-  LogOut
+  LogOut,
+  Wrench,
+  Bot
 } from "lucide-react";
 import {
   Select,
@@ -67,6 +69,8 @@ export default function ChatPage() {
       const token = localStorage.getItem("cognilink_token");
       if (!token) {
         router.push("/login");
+      } else {
+        setUserRole(localStorage.getItem("cognilink_user_role") || "student");
       }
     }
   }, [router]);
@@ -86,6 +90,7 @@ export default function ChatPage() {
     string | null
   >(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<string>("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const {
@@ -96,10 +101,13 @@ export default function ChatPage() {
     baseUrls,
     useRAG,
     useMemory,
+    useTools,
     setUseRAG,
     setUseMemory,
+    setUseTools,
     useLocalEmbedding,
   } = useSettingsStore();
+  const [selectedAgentId, setSelectedAgentId] = useState<string>("auto");
   const apiKey = getEffectiveApiKey();
   const currentModel = SUPPORTED_MODELS.find((m) => m.id === model);
   const currentProvider = PROVIDERS.find(
@@ -284,7 +292,8 @@ export default function ChatPage() {
     setIsLoading(true);
 
     try {
-      const endpoint = useRAG ? "/api/chat/rag" : "/api/chat";
+      // 始终使用 /api/chat/rag 端点（支持完整功能参数）
+      const endpoint = "/api/chat/rag";
       // 构建历史消息（排除当前消息，最多50轮/100条）
       const MAX_HISTORY_MESSAGES = 100;
       const historyMessages = messages
@@ -303,21 +312,17 @@ export default function ChatPage() {
         baseUrl: currentModel?.provider
           ? baseUrls[currentModel.provider]
           : undefined,
+        use_rag: useRAG,
+        use_memory: useMemory,
+        use_tools: useTools,
+        use_local_embedding: useLocalEmbedding,
+        agentId: selectedAgentId !== "auto" ? selectedAgentId : undefined,
       };
 
       const response = await fetch(`${API_BASE_URL}${endpoint}`, {
         method: "POST",
         headers: getAuthHeaders(),
-        body: JSON.stringify(
-          useRAG
-            ? {
-                ...requestBody,
-                use_rag: useRAG,
-                use_memory: useMemory,
-                use_local_embedding: useLocalEmbedding,
-              }
-            : requestBody,
-        ),
+        body: JSON.stringify(requestBody),
       });
 
       // 检查 HTTP 响应状态码，处理后端返回的错误
@@ -500,12 +505,42 @@ export default function ChatPage() {
               记忆
             </Link>
             <Link
-              href="/"
+              href="/profile"
+              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
+            >
+              <Activity className="h-4 w-4" />
+              学习画像
+            </Link>
+            <Link
+              href="/graph"
+              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
+            >
+              <Network className="h-4 w-4" />
+              知识图谱
+            </Link>
+            <Link
+              href="/practice"
+              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
+            >
+              <Award className="h-4 w-4" />
+              在线练习
+            </Link>
+            <Link
+              href="/chat"
               className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
             >
               <Grid3X3 className="h-4 w-4" />
               首页
             </Link>
+            {(userRole === "admin" || userRole === "teacher") && (
+              <Link
+                href="/admin"
+                className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-all cursor-pointer font-medium"
+              >
+                <Shield className="h-4 w-4" />
+                管理后台
+              </Link>
+            )}
           </div>
 
           {/* Toggle Features */}
@@ -540,6 +575,20 @@ export default function ChatPage() {
                 <span className="flex-1 text-left">长期记忆</span>
                 {useMemory && (
                   <span className="w-1.5 h-1.5 rounded-full bg-purple-500" />
+                )}
+              </button>
+              <button
+                onClick={() => setUseTools(!useTools)}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all cursor-pointer w-full ${
+                  useTools
+                    ? "bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400"
+                    : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+                }`}
+              >
+                <Wrench className="h-4 w-4" />
+                <span className="flex-1 text-left">工具调用</span>
+                {useTools && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
                 )}
               </button>
             </div>
@@ -615,6 +664,7 @@ export default function ChatPage() {
                   localStorage.removeItem("cognilink_user_id");
                   localStorage.removeItem("cognilink_user_role");
                   localStorage.removeItem("cognilink_user_nickname");
+                  document.cookie = "cognilink_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
                   router.push("/login");
                 }
               }}
@@ -646,54 +696,98 @@ export default function ChatPage() {
               CogniLink
             </span>
           </div>
-          {/* Model Switcher */}
-          <Select
-            value={model}
-            onValueChange={(value) => {
-              const m = SUPPORTED_MODELS.find((mod) => mod.id === value);
-              if (m) {
-                setModel(m.id);
-                setSelectedProvider(m.provider);
-              }
-            }}
-          >
-            <SelectTrigger className="w-[280px] text-sm border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-gray-300 dark:hover:border-gray-600 transition-colors">
-              <SelectValue placeholder="选择模型">
-                {currentModel && (
-                  <div className="flex items-center gap-2 truncate">
-                    <span className="font-medium text-gray-900 dark:text-gray-100">
-                      {currentModel.name}
-                    </span>
-                    <span className="text-gray-500 text-xs truncate">
-                      {
-                        PROVIDERS.find((p) => p.id === currentModel.provider)
-                          ?.name
-                      }
+          {/* Agent Switcher + Model Switcher */}
+          <div className="flex items-center gap-2">
+            <Select
+              value={selectedAgentId}
+              onValueChange={(value) => setSelectedAgentId(value)}
+            >
+              <SelectTrigger className="w-[150px] text-sm border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-gray-300 dark:hover:border-gray-600 transition-colors">
+                <SelectValue placeholder="选择导师">
+                  <div className="flex items-center gap-1.5 truncate">
+                    <Bot className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
+                    <span className="font-medium text-gray-900 dark:text-gray-100 truncate">
+                      {selectedAgentId === "auto" ? "自动路由" : selectedAgentId === "rag" ? "RagBot" : selectedAgentId === "langgraph" ? "GraphBot" : selectedAgentId === "llmops" ? "OpsBot" : "自动路由"}
                     </span>
                   </div>
-                )}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent className="max-h-[500px] w-[360px]">
-              {SUPPORTED_MODELS.map((m) => (
-                <SelectItem
-                  key={m.id}
-                  value={m.id}
-                  className="py-3 h-auto whitespace-normal"
-                >
-                  <div className="flex flex-col items-start gap-1 w-full max-w-[360px]">
-                    <span className="font-medium text-sm truncate w-full">
-                      {m.name}
-                    </span>
-                    <span className="text-xs text-gray-500 leading-relaxed break-words w-full">
-                      {PROVIDERS.find((p) => p.id === m.provider)?.name} ·{" "}
-                      {m.description}
-                    </span>
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto" className="py-2.5">
+                  <div className="flex items-center gap-2">
+                    <Bot className="h-3.5 w-3.5 text-indigo-500" />
+                    <span className="text-sm">自动路由</span>
                   </div>
                 </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+                <SelectItem value="rag" className="py-2.5">
+                  <div className="flex items-center gap-2">
+                    <BookOpen className="h-3.5 w-3.5 text-blue-500" />
+                    <span className="text-sm">RAG 实训导师</span>
+                  </div>
+                </SelectItem>
+                <SelectItem value="langgraph" className="py-2.5">
+                  <div className="flex items-center gap-2">
+                    <Network className="h-3.5 w-3.5 text-green-500" />
+                    <span className="text-sm">LangGraph 导师</span>
+                  </div>
+                </SelectItem>
+                <SelectItem value="llmops" className="py-2.5">
+                  <div className="flex items-center gap-2">
+                    <Activity className="h-3.5 w-3.5 text-orange-500" />
+                    <span className="text-sm">LLMOps 助教</span>
+                  </div>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select
+              value={model}
+              onValueChange={(value) => {
+                const m = SUPPORTED_MODELS.find((mod) => mod.id === value);
+                if (m) {
+                  setModel(m.id);
+                  setSelectedProvider(m.provider);
+                }
+              }}
+            >
+              <SelectTrigger className="w-[240px] text-sm border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-gray-300 dark:hover:border-gray-600 transition-colors">
+                <SelectValue placeholder="选择模型">
+                  {currentModel && (
+                    <div className="flex items-center gap-2 truncate">
+                      <span className="font-medium text-gray-900 dark:text-gray-100">
+                        {currentModel.name}
+                      </span>
+                      <span className="text-gray-500 text-xs truncate">
+                        {
+                          PROVIDERS.find((p) => p.id === currentModel.provider)
+                            ?.name
+                        }
+                      </span>
+                    </div>
+                  )}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent className="max-h-[500px] w-[360px]">
+                {SUPPORTED_MODELS.map((m) => (
+                  <SelectItem
+                    key={m.id}
+                    value={m.id}
+                    className="py-3 h-auto whitespace-normal"
+                  >
+                    <div className="flex flex-col items-start gap-1 w-full max-w-[360px]">
+                      <span className="font-medium text-sm truncate w-full">
+                        {m.name}
+                      </span>
+                      <span className="text-xs text-gray-500 leading-relaxed break-words w-full">
+                        {PROVIDERS.find((p) => p.id === m.provider)?.name} ·{" "}
+                        {m.description}
+                      </span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </header>
 
         {/* Chat Area */}
@@ -891,6 +985,12 @@ export default function ChatPage() {
 
             {/* Features indicator */}
             <div className="flex items-center justify-center gap-2 mt-3">
+              {selectedAgentId !== "auto" && (
+                <span className="inline-flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/30 px-2.5 py-1 rounded-full font-medium">
+                  <Bot className="h-3 w-3" />
+                  {selectedAgentId === "rag" ? "RagBot" : selectedAgentId === "langgraph" ? "GraphBot" : selectedAgentId === "llmops" ? "OpsBot" : ""}
+                </span>
+              )}
               {useRAG && (
                 <span className="inline-flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 px-2.5 py-1 rounded-full font-medium">
                   <BookOpen className="h-3 w-3" />
@@ -901,6 +1001,12 @@ export default function ChatPage() {
                 <span className="inline-flex items-center gap-1.5 text-xs text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/30 px-2.5 py-1 rounded-full font-medium">
                   <Brain className="h-3 w-3" />
                   记忆已启用
+                </span>
+              )}
+              {useTools && (
+                <span className="inline-flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 px-2.5 py-1 rounded-full font-medium">
+                  <Wrench className="h-3 w-3" />
+                  工具已启用
                 </span>
               )}
             </div>

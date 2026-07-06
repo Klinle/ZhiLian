@@ -40,6 +40,14 @@ except ImportError:
     unstructured_partition = None
     unstructured_chunk_by_title = None
 
+# PDF partitioning via unstructured requires unstructured_inference (layout detection).
+# If not installed, PDFs fall back to the legacy parser pipeline.
+try:
+    import unstructured_inference  # noqa: F401
+    UNSTRUCTURED_PDF_AVAILABLE = True
+except ImportError:
+    UNSTRUCTURED_PDF_AVAILABLE = False
+
 MEANINGFUL_TEXT_MIN_CHARS = 60
 
 
@@ -334,10 +342,16 @@ class DocumentService:
         """Parse document using unstructured, returning structured elements.
 
         Falls back to the legacy text-based parsers if unstructured is not
-        installed or raises an exception.
+        installed, if the file type requires unavailable extras (e.g. PDF
+        needs unstructured_inference), or if partitioning raises an exception.
         """
+        # Fast path: skip unstructured entirely when unavailable or when PDF
+        # lacks the required unstructured_inference dependency.
         if not UNSTRUCTURED_AVAILABLE:
-            # Fallback: return elements synthesized from plain text
+            text = await self.parse_document(file_path, file_type)
+            return self._text_to_elements(text)
+
+        if file_type == ".pdf" and not UNSTRUCTURED_PDF_AVAILABLE:
             text = await self.parse_document(file_path, file_type)
             return self._text_to_elements(text)
 
@@ -357,15 +371,56 @@ class DocumentService:
             return self._text_to_elements(text)
 
     def _text_to_elements(self, text: str) -> list:
-        """Convert plain text into pseudo-elements for the structured pipeline."""
+        """Convert plain text into pseudo-elements for the structured pipeline.
+
+        Attempts to classify each line as a Title or NarrativeText so that
+        chunk_by_title can split the document at heading boundaries.
+        """
+        import re
+
         class _PseudoElement:
-            def __init__(self, text: str, page_number: int = None):
+            """Lightweight stand-in for unstructured.Element.
+
+            Marked with ``_is_pseudo = True`` so that ``chunk_text_structured``
+            can route pseudo-elements to the fixed-size fallback chunker
+            instead of calling ``chunk_by_title`` (which expects full
+            ``ElementMetadata`` with ``known_fields`` etc.).
+            """
+            _is_pseudo = True
+
+            def __init__(self, text: str, page_number: int = None,
+                         element_type: str = "NarrativeText"):
                 self.text = text
                 self.metadata = type("_Meta", (), {
                     "page_number": page_number,
-                    "element_type": "NarrativeText",
-                    "categories": ["NarrativeText"],
+                    "element_type": element_type,
+                    "categories": [element_type],
                 })()
+
+        # Patterns that suggest a line is a title/heading
+        title_patterns = [
+            re.compile(r'^#{1,6}\s'),        # Markdown headings: # Title
+            re.compile(r'^第[一二三四五六七八九十\d]+[章节条]'),  # 第X章/节
+            re.compile(r'^\d+[\.\)]\s+\S'),    # 1. Title / 1) Title
+            re.compile(r'^[A-Z][\s·]'),       # ALL CAPS or A. Title
+            re.compile(r'^[\u4e00-\u9fa5]{2,20}$'),  # Short Chinese text
+        ]
+
+        def _is_title(line: str) -> bool:
+            stripped = line.strip()
+            if not stripped or len(stripped) > 80:
+                return False
+            # Short line not ending with sentence punctuation → likely title
+            if len(stripped) <= 50 and not stripped.endswith(
+                ('.', '。', '!', '！', '?', '？', ',', '，', ';', '；', ':', '：')
+            ):
+                for pat in title_patterns:
+                    if pat.match(stripped):
+                        return True
+            # Markdown heading
+            if stripped.startswith('#'):
+                return True
+            return False
 
         lines = text.split("\n")
         elements = []
@@ -376,12 +431,12 @@ class DocumentService:
                 continue
             # Detect page markers like "--- 第 1 页 ---"
             if stripped.startswith("---") and "页" in stripped:
-                import re
                 match = re.search(r"第\s*(\d+)\s*页", stripped)
                 if match:
                     current_page = int(match.group(1))
                 continue
-            elements.append(_PseudoElement(stripped, current_page))
+            etype = "Title" if _is_title(stripped) else "NarrativeText"
+            elements.append(_PseudoElement(stripped, current_page, etype))
         return elements
 
     async def parse_document_text(
@@ -407,7 +462,17 @@ class DocumentService:
 
         chunks_data: List[dict] = []
 
-        if UNSTRUCTURED_AVAILABLE and unstructured_chunk_by_title is not None:
+        # Use unstructured's chunk_by_title only for real unstructured elements.
+        # Pseudo-elements (from legacy parser) lack the full ElementMetadata
+        # interface and would trigger ``'_Meta' object has no attribute
+        # 'known_fields'`` errors, so route them to the fallback chunker.
+        _all_pseudo = all(getattr(e, "_is_pseudo", False) for e in elements)
+
+        if (
+            UNSTRUCTURED_AVAILABLE
+            and unstructured_chunk_by_title is not None
+            and not _all_pseudo
+        ):
             try:
                 chunked = unstructured_chunk_by_title(
                     elements, max_characters=max_chunk_size

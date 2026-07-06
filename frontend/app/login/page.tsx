@@ -21,6 +21,8 @@ export default function LoginPage() {
     if (typeof window !== "undefined") {
       const token = localStorage.getItem("cognilink_token");
       if (token) {
+        // localStorage 有 token 但 cookie 可能被清除，同步设置 cookie 防止重定向循环
+        document.cookie = `cognilink_token=${token}; path=/; max-age=${60 * 60 * 24 * 7}; samesite=lax`;
         router.push("/chat");
       }
     }
@@ -46,6 +48,9 @@ export default function LoginPage() {
       localStorage.setItem("cognilink_user_id", data.user.id);
       localStorage.setItem("cognilink_user_role", data.user.role);
       localStorage.setItem("cognilink_user_nickname", data.user.nickname);
+
+      // 同步设置 cookie，供 middleware 认证使用
+      document.cookie = `cognilink_token=${data.access_token}; path=/; max-age=${60 * 60 * 24 * 7}; samesite=lax`;
 
       router.push("/chat");
     } catch (err) {
@@ -171,12 +176,7 @@ export default function LoginPage() {
           </p>
         </div>
 
-        <button
-          onClick={() => router.push("/")}
-          className="block mx-auto mt-6 text-sm text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-        >
-          ← 返回首页
-        </button>
+
       </div>
     </div>
   );

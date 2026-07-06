@@ -6,7 +6,8 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from core.database import get_session
-from models.database import Memory, MemorySetting
+from core.dependencies import get_current_user
+from models.database import Memory, MemorySetting, User
 from models.schemas import MemoryCreate, MemoryUpdate, MemoryResponse
 from services.memory_service import memory_service
 from services.embedding_service import embedding_service
@@ -65,7 +66,8 @@ async def create_memory(
     provider: str = "openai",
     base_url: str = "",
     use_local_embedding: bool = False,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     """Create a new memory manually"""
     if not use_local_embedding and not api_key:
@@ -80,7 +82,8 @@ async def create_memory(
         source="manual",
         provider=provider,
         base_url=base_url if base_url else None,
-        use_local=use_local_embedding
+        use_local=use_local_embedding,
+        user_id=str(current_user.id),
     )
     
     return {
@@ -94,10 +97,11 @@ async def create_memory(
 @router.get("/")
 async def list_memories(
     category: Optional[str] = None,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     """List all memories"""
-    memories = await memory_service.list_memories(session, category)
+    memories = await memory_service.list_memories(session, category, user_id=str(current_user.id))
     
     return [
         {
@@ -120,7 +124,8 @@ async def search_memories(
     base_url: str = "",
     use_local_embedding: bool = False,
     limit: int = 5,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     """Search memories by semantic similarity"""
     if not use_local_embedding and not api_key:
@@ -128,7 +133,7 @@ async def search_memories(
 
     memories = await memory_service.search_relevant_memories(
         query, api_key, session, limit, provider, base_url if base_url else None,
-        use_local=use_local_embedding
+        use_local=use_local_embedding, user_id=str(current_user.id)
     )
 
     return [
@@ -145,11 +150,13 @@ async def search_memories(
 async def update_memory(
     memory_id: str,
     data: MemoryUpdate,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     """Update a memory"""
     memory = await memory_service.update_memory(
-        memory_id, session, content=data.content, importance=data.importance
+        memory_id, session, content=data.content, importance=data.importance,
+        user_id=str(current_user.id)
     )
     
     if not memory:
@@ -165,10 +172,11 @@ async def update_memory(
 @router.delete("/{memory_id}")
 async def delete_memory(
     memory_id: str,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     """Delete a memory"""
-    success = await memory_service.delete_memory(memory_id, session)
+    success = await memory_service.delete_memory(memory_id, session, user_id=str(current_user.id))
     
     if not success:
         raise HTTPException(404, "Memory not found")
@@ -180,14 +188,16 @@ async def extract_memories(
     conversation_text: str,
     api_key: str = "",
     use_local_embedding: bool = False,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     """Extract memories from conversation text"""
     if not api_key:
         raise HTTPException(400, "API key required for LLM extraction")
 
     memories = await memory_service.extract_memories_from_conversation(
-        conversation_text, api_key, session, use_local=use_local_embedding
+        conversation_text, api_key, session, use_local=use_local_embedding,
+        user_id=str(current_user.id)
     )
 
     return [

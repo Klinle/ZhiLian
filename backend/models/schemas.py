@@ -15,6 +15,7 @@ class ChatRequest(BaseModel):
     apiKey: str
     model: str = "deepseek-v4-flash"
     baseUrl: Optional[str] = None
+    agentId: Optional[str] = None
 
 
 class DocumentResponse(BaseModel):
@@ -48,6 +49,7 @@ class RAGChatRequest(BaseModel):
     apiKey: str
     model: str = "deepseek-v4-flash"
     baseUrl: Optional[str] = None
+    agentId: Optional[str] = None
 
 
 # Memory schemas
@@ -70,3 +72,33 @@ class MemoryResponse(BaseModel):
     source: str
     created_at: datetime
     access_count: int
+
+
+# Lab schemas
+class LabSubmitRequest(BaseModel):
+    code: str
+    api_key: Optional[str] = None
+    model: Optional[str] = None
+    base_url: Optional[str] = None
+    answers: Optional[dict] = None  # For quiz-type labs
+
+
+class LabResponse(BaseModel):
+    id: str
+    title: str
+    description: Optional[str] = None
+    starter_code: Optional[str] = None
+    test_cases: Optional[dict] = None
+    difficulty: Optional[str] = None
+    lab_type: Optional[str] = None
+    node_id: Optional[str] = None
+
+
+class SubmissionResponse(BaseModel):
+    id: str
+    submitted_code: str
+    status: str
+    score: int
+    evaluation_result: Optional[dict] = None
+    ai_feedback: Optional[str] = None
+    created_at: datetime
