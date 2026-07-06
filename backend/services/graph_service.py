@@ -154,6 +154,43 @@ class GraphService:
         # 无匹配领域时直接到 Reviewer
         return "reviewer"
 
+    async def rag_bot_node(self, state: AgentState) -> dict:
+        """
+        RagBot 节点：执行混合检索，返回知识库上下文
+
+        调用现有 rag_service.get_context_for_query()，
+        将检索结果存入 agent_results["rag"]。
+        """
+        from services.rag_service import rag_service
+
+        user_message = state.get("user_message", "")
+        api_key = state.get("api_key", "")
+        base_url = state.get("base_url")
+        session = state.get("session")
+        user_id = state.get("user_id", "")
+
+        agent_results = state.get("agent_results", {})
+
+        if not session:
+            agent_results["rag"] = {"context": "", "error": "无数据库会话"}
+            return {"agent_results": agent_results}
+
+        try:
+            rag_context = await rag_service.get_context_for_query(
+                user_message,
+                api_key,
+                session,
+                provider="openai",
+                base_url=base_url,
+                use_local=False,
+                user_id=user_id,
+            )
+            agent_results["rag"] = {"context": rag_context or "", "error": None}
+        except Exception as e:
+            agent_results["rag"] = {"context": "", "error": str(e)}
+
+        return {"agent_results": agent_results}
+
     def _build_workflow(self):
         """
         构建 LangGraph StateGraph 工作流

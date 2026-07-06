@@ -167,3 +167,84 @@ class TestRouteToAgents:
             ]
         }
         assert service.route_to_agents(state) == "rag_bot"
+
+
+class TestRagBotNode:
+    """RagBot 检索节点测试"""
+
+    @pytest.fixture
+    def service(self):
+        return GraphService()
+
+    @pytest.mark.asyncio
+    async def test_normal_retrieval(self, service):
+        """测试：正常检索返回知识库上下文"""
+        mock_rag = MagicMock()
+        mock_rag.get_context_for_query = AsyncMock(
+            return_value="RAG context content",
+        )
+
+        with patch("services.rag_service.rag_service", mock_rag):
+            state: AgentState = {
+                "user_message": "什么是RAG？",
+                "api_key": "test-key",
+                "base_url": "http://test",
+                "session": MagicMock(),
+                "user_id": "user-123",
+            }
+            result = await service.rag_bot_node(state)
+
+        assert "agent_results" in result
+        assert result["agent_results"]["rag"]["context"] == "RAG context content"
+        assert result["agent_results"]["rag"]["error"] is None
+
+    @pytest.mark.asyncio
+    async def test_no_session(self, service):
+        """测试：无数据库会话返回错误信息"""
+        state: AgentState = {
+            "user_message": "什么是RAG？",
+            "api_key": "test-key",
+            "session": None,
+        }
+        result = await service.rag_bot_node(state)
+
+        assert result["agent_results"]["rag"]["context"] == ""
+        assert "无数据库会话" in result["agent_results"]["rag"]["error"]
+
+    @pytest.mark.asyncio
+    async def test_retrieval_error(self, service):
+        """测试：检索异常返回错误信息"""
+        mock_rag = MagicMock()
+        mock_rag.get_context_for_query = AsyncMock(
+            side_effect=Exception("DB Error"),
+        )
+
+        with patch("services.rag_service.rag_service", mock_rag):
+            state: AgentState = {
+                "user_message": "什么是RAG？",
+                "api_key": "test-key",
+                "session": MagicMock(),
+                "user_id": "user-123",
+            }
+            result = await service.rag_bot_node(state)
+
+        assert result["agent_results"]["rag"]["context"] == ""
+        assert "DB Error" in result["agent_results"]["rag"]["error"]
+
+    @pytest.mark.asyncio
+    async def test_empty_context(self, service):
+        """测试：检索返回空上下文时正常处理"""
+        mock_rag = MagicMock()
+        mock_rag.get_context_for_query = AsyncMock(return_value=None)
+
+        with patch("services.rag_service.rag_service", mock_rag):
+            state: AgentState = {
+                "user_message": "无关问题",
+                "api_key": "test-key",
+                "session": MagicMock(),
+                "user_id": "user-123",
+            }
+            result = await service.rag_bot_node(state)
+
+        assert result["agent_results"]["rag"]["context"] == ""
+        assert result["agent_results"]["rag"]["error"] is None
