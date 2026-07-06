@@ -372,9 +372,38 @@ class GraphService:
         Returns:
             编译后的 LangGraph 可执行 app
         """
-        # T6-T11 逐步实现各节点和路由
         workflow = StateGraph(AgentState)
-        # 节点和边将在后续任务中添加
+
+        # 添加节点
+        workflow.add_node("orchestrator", self.orchestrator_node)
+        workflow.add_node("rag_bot", self.rag_bot_node)
+        workflow.add_node("graph_bot", self.graph_bot_node)
+        workflow.add_node("ops_bot", self.ops_bot_node)
+        workflow.add_node("reviewer", self.reviewer_node)
+
+        # 设置入口点
+        workflow.set_entry_point("orchestrator")
+
+        # 条件路由：Orchestrator 根据任务分解结果决定下一个 Agent
+        workflow.add_conditional_edges(
+            "orchestrator",
+            self.route_to_agents,
+            {
+                "rag_bot": "rag_bot",
+                "graph_bot": "graph_bot",
+                "ops_bot": "ops_bot",
+                "reviewer": "reviewer",
+            },
+        )
+
+        # 各 Agent 执行后统一进入 Reviewer 审查
+        workflow.add_edge("rag_bot", "reviewer")
+        workflow.add_edge("graph_bot", "reviewer")
+        workflow.add_edge("ops_bot", "reviewer")
+
+        # Reviewer → END
+        workflow.add_edge("reviewer", END)
+
         return workflow.compile()
 
     async def run(self, state: AgentState) -> AgentState:

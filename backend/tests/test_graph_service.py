@@ -543,3 +543,128 @@ class TestReviewerNode:
         call_args = mock_llm.call_args
         system_prompt = call_args[0][0]
         assert "有效内容" in system_prompt
+
+
+class TestBuildWorkflow:
+    """StateGraph 工作流构建与集成测试"""
+
+    def test_workflow_compiles(self):
+        """测试：工作流可以正常编译"""
+        service = GraphService()
+        app = service._build_workflow()
+        assert app is not None
+
+    @pytest.mark.asyncio
+    async def test_rag_path_execution(self):
+        """测试：RAG 路径完整执行（orchestrator → rag_bot → reviewer → END）"""
+        service = GraphService()
+
+        with patch.object(
+            service, "orchestrator_node", new_callable=AsyncMock,
+        ) as mock_orc, patch.object(
+            service, "rag_bot_node", new_callable=AsyncMock,
+        ) as mock_rag, patch.object(
+            service, "reviewer_node", new_callable=AsyncMock,
+        ) as mock_rev:
+            mock_orc.return_value = {
+                "sub_tasks": [{"domain": "rag", "task": "test"}],
+                "needs_review": False,
+            }
+            mock_rag.return_value = {
+                "agent_results": {"rag": {"context": "RAG content", "error": None}},
+            }
+            mock_rev.return_value = {
+                "final_answer": "最终回答",
+                "needs_review": False,
+            }
+
+            app = service._build_workflow()
+            state: AgentState = {
+                "user_message": "什么是RAG？",
+                "api_key": "test-key",
+                "model": "test-model",
+            }
+            result = await app.ainvoke(state)
+
+        mock_orc.assert_called_once()
+        mock_rag.assert_called_once()
+        mock_rev.assert_called_once()
+        assert result.get("final_answer") == "最终回答"
+
+    @pytest.mark.asyncio
+    async def test_general_path_execution(self):
+        """测试：general 路径（orchestrator → reviewer → END，跳过 Agent）"""
+        service = GraphService()
+
+        with patch.object(
+            service, "orchestrator_node", new_callable=AsyncMock,
+        ) as mock_orc, patch.object(
+            service, "reviewer_node", new_callable=AsyncMock,
+        ) as mock_rev, patch.object(
+            service, "rag_bot_node", new_callable=AsyncMock,
+        ) as mock_rag, patch.object(
+            service, "graph_bot_node", new_callable=AsyncMock,
+        ) as mock_gra, patch.object(
+            service, "ops_bot_node", new_callable=AsyncMock,
+        ) as mock_ops:
+            mock_orc.return_value = {
+                "sub_tasks": [{"domain": "general", "task": "test"}],
+                "needs_review": False,
+            }
+            mock_rev.return_value = {
+                "final_answer": "通用回答",
+                "needs_review": False,
+            }
+
+            app = service._build_workflow()
+            state: AgentState = {
+                "user_message": "你好",
+                "api_key": "test-key",
+                "model": "test-model",
+            }
+            result = await app.ainvoke(state)
+
+        mock_orc.assert_called_once()
+        mock_rev.assert_called_once()
+        # general 领域不经过任何 Agent
+        mock_rag.assert_not_called()
+        mock_gra.assert_not_called()
+        mock_ops.assert_not_called()
+        assert result.get("final_answer") == "通用回答"
+
+    @pytest.mark.asyncio
+    async def test_langgraph_path_execution(self):
+        """测试：LangGraph 路径完整执行（orchestrator → graph_bot → reviewer → END）"""
+        service = GraphService()
+
+        with patch.object(
+            service, "orchestrator_node", new_callable=AsyncMock,
+        ) as mock_orc, patch.object(
+            service, "graph_bot_node", new_callable=AsyncMock,
+        ) as mock_gra, patch.object(
+            service, "reviewer_node", new_callable=AsyncMock,
+        ) as mock_rev:
+            mock_orc.return_value = {
+                "sub_tasks": [{"domain": "langgraph", "task": "test"}],
+                "needs_review": False,
+            }
+            mock_gra.return_value = {
+                "agent_results": {"langgraph": {"content": "LG content", "error": None}},
+            }
+            mock_rev.return_value = {
+                "final_answer": "LangGraph 回答",
+                "needs_review": False,
+            }
+
+            app = service._build_workflow()
+            state: AgentState = {
+                "user_message": "如何设计状态机？",
+                "api_key": "test-key",
+                "model": "test-model",
+            }
+            result = await app.ainvoke(state)
+
+        mock_orc.assert_called_once()
+        mock_gra.assert_called_once()
+        mock_rev.assert_called_once()
+        assert result.get("final_answer") == "LangGraph 回答"
