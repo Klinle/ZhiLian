@@ -44,6 +44,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { API_BASE_URL, getAuthHeaders } from "@/lib/api";
+import { parseSSEStream } from "@/lib/sse";
+import { WorkflowPanel, WorkflowStep } from "@/components/workflow-panel";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -79,6 +81,7 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [workflowSteps, setWorkflowSteps] = useState<WorkflowStep[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [filteredConversations, setFilteredConversations] = useState<
@@ -106,6 +109,8 @@ export default function ChatPage() {
     setUseMemory,
     setUseTools,
     useLocalEmbedding,
+    useMultiAgent,
+    setUseMultiAgent,
   } = useSettingsStore();
   const [selectedAgentId, setSelectedAgentId] = useState<string>("auto");
   const apiKey = getEffectiveApiKey();
@@ -292,8 +297,8 @@ export default function ChatPage() {
     setIsLoading(true);
 
     try {
-      // 始终使用 /api/chat/rag 端点（支持完整功能参数）
-      const endpoint = "/api/chat/rag";
+      // 多Agent模式使用 graph 端点，否则使用 rag 端点
+      const endpoint = useMultiAgent ? "/api/chat/graph" : "/api/chat/rag";
       // 构建历史消息（排除当前消息，最多50轮/100条）
       const MAX_HISTORY_MESSAGES = 100;
       const historyMessages = messages
@@ -347,37 +352,86 @@ export default function ChatPage() {
       };
       setMessages((prev) => [...prev, assistantMessage]);
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
+      if (useMultiAgent) {
+        // 多 Agent SSE 模式
+        setWorkflowSteps([]);
+        await parseSSEStream(response, ({ event, data }) => {
+          if (event === "status") {
+            setWorkflowSteps((prev) => {
+              if (data.status === "running") {
+                return [
+                  ...prev,
+                  {
+                    node: data.node,
+                    label: data.label,
+                    status: "running" as const,
+                    message: data.message,
+                  },
+                ];
+              } else {
+                // 更新同节点的最后一步为完成
+                const newSteps = [...prev];
+                for (let i = newSteps.length - 1; i >= 0; i--) {
+                  if (newSteps[i].node === data.node) {
+                    newSteps[i] = {
+                      ...newSteps[i],
+                      status: "done" as const,
+                      data: data.data,
+                    };
+                    break;
+                  }
+                }
+                return newSteps;
+              }
+            });
+          } else if (event === "content") {
+            assistantMessage.content += data.text;
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantMessage.id
+                  ? { ...msg, content: assistantMessage.content }
+                  : msg,
+              ),
+            );
+          } else if (event === "error") {
+            setErrorMessage(data.message || "多Agent工作流执行失败");
+          }
+        });
+        setWorkflowSteps([]);
+      } else {
+        // 现有流式模式
+        const reader = response.body!.getReader();
+        const decoder = new TextDecoder();
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value);
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value);
 
-        // 检测后端流式传递的错误信息
-        if (
-          chunk.startsWith("[ERROR]") ||
-          (assistantMessage.content === "" && chunk.includes("[ERROR]"))
-        ) {
-          const errText = (assistantMessage.content + chunk)
-            .replace("[ERROR]", "")
-            .trim();
-          // 移除空的 assistant 消息
+          // 检测后端流式传递的错误信息
+          if (
+            chunk.startsWith("[ERROR]") ||
+            (assistantMessage.content === "" && chunk.includes("[ERROR]"))
+          ) {
+            const errText = (assistantMessage.content + chunk)
+              .replace("[ERROR]", "")
+              .trim();
+            // 移除空的 assistant 消息
+            setMessages((prev) =>
+              prev.filter((msg) => msg.id !== assistantMessage.id),
+            );
+            throw new Error(errText || "LLM 调用失败");
+          }
+
+          assistantMessage.content += chunk;
           setMessages((prev) =>
-            prev.filter((msg) => msg.id !== assistantMessage.id),
+            prev.map((msg) =>
+              msg.id === assistantMessage.id
+                ? { ...msg, content: assistantMessage.content }
+                : msg,
+            ),
           );
-          throw new Error(errText || "LLM 调用失败");
         }
-
-        assistantMessage.content += chunk;
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantMessage.id
-              ? { ...msg, content: assistantMessage.content }
-              : msg,
-          ),
-        );
       }
     } catch (error) {
       console.error("Chat error:", error);
@@ -589,6 +643,20 @@ export default function ChatPage() {
                 <span className="flex-1 text-left">工具调用</span>
                 {useTools && (
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                )}
+              </button>
+              <button
+                onClick={() => setUseMultiAgent(!useMultiAgent)}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all cursor-pointer w-full ${
+                  useMultiAgent
+                    ? "bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400"
+                    : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+                }`}
+              >
+                <Bot className="h-4 w-4" />
+                <span className="flex-1 text-left">多Agent协同</span>
+                {useMultiAgent && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
                 )}
               </button>
             </div>
@@ -825,6 +893,10 @@ export default function ChatPage() {
                   key={message.id}
                   className={`flex gap-4 group ${
                     message.role === "user" ? "flex-row-reverse" : ""
+                  } ${
+                    message.role === "assistant" && !message.content && isLoading && useMultiAgent
+                      ? "hidden"
+                      : ""
                   }`}
                 >
                   {/* Avatar */}
@@ -893,22 +965,26 @@ export default function ChatPage() {
                     AI
                   </div>
                   <div className="flex-1">
-                    <div className="inline-flex items-center gap-2 px-4 py-3 rounded-2xl bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-bl-md shadow-sm">
-                      <div className="flex gap-1">
-                        <span
-                          className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"
-                          style={{ animationDelay: "0ms" }}
-                        />
-                        <span
-                          className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"
-                          style={{ animationDelay: "150ms" }}
-                        />
-                        <span
-                          className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"
-                          style={{ animationDelay: "300ms" }}
-                        />
+                    {useMultiAgent && workflowSteps.length > 0 ? (
+                      <WorkflowPanel steps={workflowSteps} />
+                    ) : (
+                      <div className="inline-flex items-center gap-2 px-4 py-3 rounded-2xl bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-bl-md shadow-sm">
+                        <div className="flex gap-1">
+                          <span
+                            className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"
+                            style={{ animationDelay: "0ms" }}
+                          />
+                          <span
+                            className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"
+                            style={{ animationDelay: "150ms" }}
+                          />
+                          <span
+                            className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"
+                            style={{ animationDelay: "300ms" }}
+                          />
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -1007,6 +1083,12 @@ export default function ChatPage() {
                 <span className="inline-flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 px-2.5 py-1 rounded-full font-medium">
                   <Wrench className="h-3 w-3" />
                   工具已启用
+                </span>
+              )}
+              {useMultiAgent && (
+                <span className="inline-flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/30 px-2.5 py-1 rounded-full font-medium">
+                  <Bot className="h-3 w-3" />
+                  多Agent协同已启用
                 </span>
               )}
             </div>
