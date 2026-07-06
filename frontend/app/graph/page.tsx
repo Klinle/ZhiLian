@@ -16,11 +16,11 @@ import {
   Sparkles,
   RefreshCw,
   Info,
-  LogOut,
   Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { API_BASE_URL, getAuthHeaders, knowledgeApi } from "@/lib/api";
+import UserLayout from "@/components/user-layout";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
 
@@ -52,11 +52,25 @@ interface GraphData {
   };
 }
 
+interface RecommendedNode {
+  id: string;
+  code: string;
+  name: string;
+  category: string;
+  description: string;
+  pagerank: number;
+  proficiency: number;
+  reason: string;
+}
+
 // Category color mapping
 const CATEGORY_COLORS: Record<string, string> = {
-  RAG: "#3b82f6",
-  LangGraph: "#a855f7",
-  LLMOps: "#10b981",
+  programming: "#3b82f6",
+  dsa: "#ef4444",
+  organization: "#10b981",
+  os: "#06b6d4",
+  network: "#8b5cf6",
+  database: "#f59e0b",
   Other: "#6366f1",
 };
 
@@ -67,6 +81,9 @@ export default function GraphPage() {
   const [loading, setLoading] = useState(true);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [userRole, setUserRole] = useState<string>("");
+  const [recommendations, setRecommendations] = useState<RecommendedNode[]>([]);
+  const [recLoading, setRecLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -91,9 +108,22 @@ export default function GraphPage() {
     }
   }, []);
 
+  const fetchRecommendations = useCallback(async () => {
+    try {
+      setRecLoading(true);
+      const data = await knowledgeApi.recommendLearningPath();
+      setRecommendations(data);
+    } catch (error) {
+      console.error("Failed to fetch recommendations:", error);
+    } finally {
+      setRecLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchGraphData();
-  }, [fetchGraphData]);
+    fetchRecommendations();
+  }, [fetchGraphData, fetchRecommendations]);
 
   useEffect(() => {
     const timer = setTimeout(() => setMounted(true), 50);
@@ -162,6 +192,19 @@ export default function GraphPage() {
     await fetchGraphData();
   }, [graphData, fetchGraphData]);
 
+  const handleRefreshWeights = useCallback(async () => {
+    try {
+      setRefreshing(true);
+      await knowledgeApi.computePageRank();
+      await fetchGraphData();
+      await fetchRecommendations();
+    } catch (error) {
+      console.error("Failed to refresh weights:", error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [fetchGraphData, fetchRecommendations]);
+
   // ECharts click event handler
   const onChartClick = (params: { dataType: string; data: { nodeId?: string } }) => {
     if (params.dataType === "node" && params.data?.nodeId) {
@@ -187,12 +230,13 @@ export default function GraphPage() {
     idToName[n.id] = n.name;
   });
 
+  const maxPagerank = Math.max(...nodes.map((n) => n.pagerank_weight), 0.001);
   const processedData = nodes.map((node) => {
     const isLighted = node.is_lighted;
     const color = CATEGORY_COLORS[node.category] || CATEGORY_COLORS.Other;
     const symbolSize = Math.max(
       16,
-      Math.min(40, 16 + node.pagerank_weight * 12)
+      Math.min(40, 16 + (node.pagerank_weight / maxPagerank) * 24)
     );
     return {
       nodeId: node.id,
@@ -283,124 +327,9 @@ export default function GraphPage() {
   const lightedPercent = totalCount > 0 ? Math.round((lightedCount / totalCount) * 100) : 0;
 
   return (
-    <div className="flex h-screen bg-[#fafafa] dark:bg-[#0c0f1d] text-slate-800 dark:text-slate-100 font-sans">
-
-      {/* Sidebar 侧边栏 */}
-      <aside className="w-72 bg-[#f9f9f9] dark:bg-[#0d0d0d] border-r border-gray-200 dark:border-gray-800 transition-all duration-300 flex flex-col shrink-0">
-
-        {/* Role Switcher Button */}
-        {userRole === "admin" || userRole === "teacher" ? (
-          <div className="px-4 pt-4 pb-0">
-            <Link
-              href="/admin"
-              className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/40 hover:bg-indigo-650 hover:text-white transition-all text-xs font-semibold text-indigo-650 dark:text-indigo-400"
-            >
-              <Shield className="h-4 w-4 shrink-0" />
-              切换至管理后台
-            </Link>
-          </div>
-        ) : null}
-
-        {/* New Chat Entrance */}
-        <div className="p-4">
-          <Link
-            href="/chat"
-            className="flex items-center gap-3 w-full px-4 py-3 rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700 hover:shadow-sm transition-all text-sm font-medium text-gray-700 dark:text-gray-200"
-          >
-            <MessageSquare className="h-4 w-4 text-gray-500" />
-            开始新聊天
-          </Link>
-        </div>
-
-        {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto px-3 space-y-0.5">
-          <div className="px-1 py-1">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 px-3">系统功能</p>
-          </div>
-
-          <Link
-            href="/knowledge"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
-          >
-            <BookOpen className="h-4 w-4" />
-            知识库
-          </Link>
-          <Link
-            href="/memories"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
-          >
-            <Brain className="h-4 w-4" />
-            记忆
-          </Link>
-
-          <Link
-            href="/profile"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
-          >
-            <Activity className="h-4 w-4 text-indigo-500" />
-            学习画像
-          </Link>
-          <Link
-            href="/graph"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all cursor-pointer w-full bg-indigo-50 dark:bg-indigo-950/30 text-indigo-650 dark:text-indigo-400 font-semibold"
-          >
-            <Network className="h-4 w-4 text-purple-500" />
-            知识图谱
-          </Link>
-          <Link
-            href="/practice"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
-          >
-            <Award className="h-4 w-4 text-emerald-500" />
-            在线练习
-          </Link>
-
-          <Link
-            href="/chat"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
-          >
-            <Grid3X3 className="h-4 w-4" />
-            首页
-          </Link>
-        </nav>
-
-        {/* User Session Footer */}
-        <div className="p-4 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between gap-3 text-xs bg-gray-50/50 dark:bg-slate-950/20">
-          <div className="flex items-center gap-2 truncate">
-            <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-xs shrink-0">
-              U
-            </div>
-            <div className="truncate text-gray-700 dark:text-gray-300">
-              <span className="font-semibold block truncate leading-tight">
-                {typeof window !== "undefined" ? localStorage.getItem("cognilink_user_nickname") || "未登录" : "加载中"}
-              </span>
-              <span className="text-[10px] text-gray-400 block mt-0.5 capitalize">
-                {typeof window !== "undefined" ? localStorage.getItem("cognilink_user_role") || "student" : "student"}
-              </span>
-            </div>
-          </div>
-          <button
-            onClick={() => {
-              if (confirm("确认退出登录？")) {
-                localStorage.removeItem("cognilink_token");
-                localStorage.removeItem("cognilink_user_id");
-                localStorage.removeItem("cognilink_user_role");
-                localStorage.removeItem("cognilink_user_nickname");
-                document.cookie = "cognilink_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-                router.push("/login");
-              }
-            }}
-            className="p-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-500 rounded-lg transition-colors"
-            title="退出登录"
-          >
-            <LogOut className="h-4 w-4" />
-          </button>
-        </div>
-
-      </aside>
-
+    <UserLayout activePath="/graph">
       {/* Main Panel */}
-      <main className="flex-1 overflow-hidden bg-white dark:bg-[#0c0f1d] flex flex-col">
+      <div className="flex-1 overflow-hidden bg-white dark:bg-[#0c0f1d] flex flex-col">
 
         {/* Header Title */}
         <div className="p-8 pb-4 shrink-0">
@@ -493,6 +422,56 @@ export default function GraphPage() {
               </Button>
             </div>
 
+            {/* Learning Path Recommendations */}
+            <div className="space-y-2 border-t border-slate-200 dark:border-slate-800/60 pt-4">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-xs font-semibold text-slate-500 flex items-center gap-1.5">
+                  <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
+                  学习路径推荐
+                </h4>
+                <button
+                  onClick={handleRefreshWeights}
+                  disabled={refreshing}
+                  className="text-[10px] text-indigo-500 hover:text-indigo-600 flex items-center gap-1 disabled:opacity-50"
+                  title="重新计算 PageRank 权重"
+                >
+                  <RefreshCw className={`h-3 w-3 ${refreshing ? "animate-spin" : ""}`} />
+                  刷新权重
+                </button>
+              </div>
+              {recLoading ? (
+                <div className="text-[10px] text-slate-400 py-2 flex items-center gap-1.5">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  加载推荐...
+                </div>
+              ) : recommendations.length > 0 ? (
+                <div className="space-y-1.5">
+                  {recommendations.map((rec, idx) => {
+                    const color = CATEGORY_COLORS[rec.category] || CATEGORY_COLORS.Other;
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => router.push("/practice")}
+                        className="flex items-start gap-2 w-full p-2 rounded-lg text-left text-xs bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 hover:border-indigo-200 dark:hover:border-indigo-900 transition-colors"
+                        title={rec.description}
+                      >
+                        <span className="w-2 h-2 rounded-full shrink-0 mt-1" style={{ backgroundColor: color }} />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="truncate font-medium text-slate-700 dark:text-slate-200">{rec.name}</span>
+                            <span className="text-[9px] font-mono text-slate-400 shrink-0">PR:{rec.pagerank.toFixed(3)}</span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 block mt-0.5">{rec.reason}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-[10px] text-slate-400 py-2">暂无推荐</div>
+              )}
+            </div>
+
             {/* Nodes toggle checklist */}
             <div className="flex-1 overflow-y-auto min-h-[150px] border-t border-slate-200 dark:border-slate-800/60 pt-4">
               <h4 className="text-xs font-semibold text-slate-500 mb-2">知识节点清单</h4>
@@ -530,7 +509,7 @@ export default function GraphPage() {
 
         </div>
 
-      </main>
-    </div>
+      </div>
+    </UserLayout>
   );
 }
