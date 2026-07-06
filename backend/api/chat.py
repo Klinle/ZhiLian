@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 import traceback
+import json
 
 from models.schemas import ChatRequest, RAGChatRequest
 from models.database import User
@@ -10,6 +11,7 @@ from services.conversation_service import conversation_service
 from services.memory_service import memory_service
 from services.tools_service import tools_service
 from services.agent_service import agent_service
+from services.graph_service import graph_service, AgentState
 from core.database import get_session, async_session_maker
 from core.dependencies import get_current_user
 import uuid
@@ -271,6 +273,102 @@ async def chat_with_rag(
             print(f"[RAG Chat Error] {type(e).__name__}: {e}")
             traceback.print_exc()
             yield f"[ERROR]{str(e)}"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@router.post("/chat/graph")
+async def chat_with_graph(
+    request: RAGChatRequest,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """多 Agent 协同对话（SSE 事件流）
+
+    返回 SSE 格式的事件流：
+    - event: status  → 各节点工作状态
+    - event: content → 最终回答分块
+    - event: done    → 完成信号
+    - event: error   → 错误信息
+    """
+    user_id = str(current_user.id)
+
+    # 获取优化的上下文
+    optimized_context = []
+    if request.conversationId:
+        optimized_context = await conversation_service.get_optimized_context(
+            session=session,
+            conversation_id=request.conversationId,
+            current_model=request.model,
+            user_id=user_id,
+        )
+        # 保存用户消息
+        await conversation_service.add_message(
+            session=session,
+            conversation_id=request.conversationId,
+            role="user",
+            content=request.message,
+            model=request.model,
+            user_id=user_id,
+        )
+
+    # 构建 AgentState
+    state: AgentState = {
+        "user_message": request.message,
+        "api_key": request.apiKey,
+        "model": request.model,
+        "base_url": request.baseUrl,
+        "session": session,
+        "user_id": user_id,
+        "messages": optimized_context,
+    }
+
+    async def generate():
+        assistant_content = ""
+        try:
+            async for event in graph_service.run_stream(state):
+                event_type = event.get("type", "status")
+                event_data = json.dumps(event, ensure_ascii=False)
+                yield f"event: {event_type}\ndata: {event_data}\n\n"
+
+                # 收集最终回答内容
+                if event_type == "content":
+                    assistant_content += event.get("text", "")
+
+            # 保存助手回复
+            if request.conversationId and assistant_content:
+                await conversation_service.add_message(
+                    session=session,
+                    conversation_id=request.conversationId,
+                    role="assistant",
+                    content=assistant_content,
+                    model=request.model,
+                    user_id=user_id,
+                )
+
+                # 检查是否需要生成摘要
+                should_summary = await conversation_service.should_generate_summary(
+                    session=session,
+                    conversation_id=request.conversationId,
+                    user_id=user_id,
+                )
+                if should_summary:
+                    asyncio.create_task(
+                        conversation_service.generate_summary(
+                            session=session,
+                            conversation_id=request.conversationId,
+                            api_key=request.apiKey,
+                            user_id=user_id,
+                        )
+                    )
+
+        except Exception as e:
+            print(f"[Graph Chat Error] {type(e).__name__}: {e}")
+            traceback.print_exc()
+            error_data = json.dumps(
+                {"type": "error", "message": str(e)}, ensure_ascii=False
+            )
+            yield f"event: error\ndata: {error_data}\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 
