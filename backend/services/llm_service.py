@@ -235,17 +235,35 @@ class LLMService:
             kwargs["tools"] = tools_service.get_tools()
             kwargs["tool_choice"] = "auto"
 
-        # Call litellm and stream response chunks
-        response = await acompletion(**kwargs)
+        # Tool Calling 循环（最大 5 轮，防止无限循环）
+        max_tool_rounds = 5
+        for _ in range(max_tool_rounds):
+            response = await acompletion(**kwargs)
 
-        async for chunk in response:
-            try:
-                delta = chunk.choices[0].delta
-                content = delta.content
-                if content:
-                    yield _to_text(content)
-            except (AttributeError, IndexError, KeyError):
-                continue
+            # 累积当前轮的 tool_calls 分片
+            accumulated_tool_calls: Dict[int, Dict[str, Any]] = {}
+
+            async for chunk in response:
+                try:
+                    delta = chunk.choices[0].delta
+                    # 提取文本内容，流式输出给前端
+                    content = delta.content
+                    if content:
+                        yield _to_text(content)
+                    # 收集 tool_calls 分片（仅 use_tools 时有效）
+                    delta_tc = getattr(delta, "tool_calls", None)
+                    if delta_tc:
+                        self._collect_tool_calls(accumulated_tool_calls, delta_tc)
+                except (AttributeError, IndexError, KeyError):
+                    continue
+
+            # 如果没有 tool_calls，正常结束
+            if not accumulated_tool_calls:
+                break
+
+            # 执行工具，将结果追加到 messages，进入下一轮 LLM 调用
+            tool_messages = await self._execute_tool_calls(accumulated_tool_calls)
+            messages.extend(tool_messages)
 
 
 llm_service = LLMService()

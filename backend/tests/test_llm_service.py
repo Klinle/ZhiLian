@@ -258,3 +258,127 @@ class TestExecuteToolCalls:
 
         mock_execute.assert_called_once_with("get_current_datetime", {})
         assert len(messages) == 2
+
+
+# ---- T3 测试辅助函数 ----
+
+def _make_chunk(content=None, tool_calls=None):
+    """构造模拟的流式响应 chunk"""
+    delta = SimpleNamespace(content=content, tool_calls=tool_calls)
+    return SimpleNamespace(choices=[SimpleNamespace(delta=delta)])
+
+
+async def _mock_async_gen(chunks):
+    """构造模拟的流式响应异步生成器"""
+    for chunk in chunks:
+        yield chunk
+
+
+class TestStreamChatToolCalling:
+    """stream_chat Tool Calling 循环集成测试"""
+
+    @pytest.mark.asyncio
+    async def test_no_tools_normal_stream(self, service):
+        """测试：use_tools=False 时正常流式输出（向后兼容）"""
+        chunks = [
+            _make_chunk(content="Hello"),
+            _make_chunk(content=" world"),
+        ]
+
+        with patch(
+            "services.llm_service.acompletion",
+            new_callable=AsyncMock,
+            return_value=_mock_async_gen(chunks),
+        ):
+            result = []
+            async for chunk_text in service.stream_chat(
+                message="hi",
+                api_key="test-key",
+                use_tools=False,
+            ):
+                result.append(chunk_text)
+
+        assert "".join(result) == "Hello world"
+
+    @pytest.mark.asyncio
+    async def test_tool_call_single_round(self, service):
+        """测试：单轮 tool calling 循环（LLM 返回 tool_call → 执行 → LLM 返回文本）"""
+        # 第一轮：返回 tool_call
+        round1_chunks = [
+            _make_chunk(tool_calls=[
+                SimpleNamespace(
+                    index=0,
+                    id="call_001",
+                    type="function",
+                    function=SimpleNamespace(
+                        name="calculator",
+                        arguments='{"expression": "2+2"}',
+                    ),
+                )
+            ]),
+        ]
+        # 第二轮：返回文本
+        round2_chunks = [
+            _make_chunk(content="The result is 4"),
+        ]
+
+        mock_acompletion = AsyncMock(side_effect=[
+            _mock_async_gen(round1_chunks),
+            _mock_async_gen(round2_chunks),
+        ])
+
+        with patch("services.llm_service.acompletion", mock_acompletion):
+            with patch.object(
+                tools_service, "execute_tool",
+                new_callable=AsyncMock, return_value='{"result": 4}',
+            ):
+                result = []
+                async for chunk_text in service.stream_chat(
+                    message="2+2=?",
+                    api_key="test-key",
+                    use_tools=True,
+                ):
+                    result.append(chunk_text)
+
+        output = "".join(result)
+        assert "The result is 4" in output
+        # 验证 acompletion 被调用了 2 次（一轮 tool_call + 一轮文本）
+        assert mock_acompletion.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_max_tool_rounds(self, service):
+        """测试：最大循环次数限制（每轮都返回 tool_call，最多 5 次）"""
+        tool_call_chunks = [
+            _make_chunk(tool_calls=[
+                SimpleNamespace(
+                    index=0,
+                    id="call_001",
+                    type="function",
+                    function=SimpleNamespace(
+                        name="calculator",
+                        arguments='{"expression": "2+2"}',
+                    ),
+                )
+            ]),
+        ]
+
+        # 每次调用都返回 tool_call，模拟无限循环
+        mock_acompletion = AsyncMock(
+            side_effect=[_mock_async_gen(tool_call_chunks) for _ in range(10)],
+        )
+
+        with patch("services.llm_service.acompletion", mock_acompletion):
+            with patch.object(
+                tools_service, "execute_tool",
+                new_callable=AsyncMock, return_value='{"result": 4}',
+            ):
+                result = []
+                async for chunk_text in service.stream_chat(
+                    message="2+2=?",
+                    api_key="test-key",
+                    use_tools=True,
+                ):
+                    result.append(chunk_text)
+
+        # 验证 acompletion 最多被调用 5 次（max_tool_rounds 限制）
+        assert mock_acompletion.call_count == 5
