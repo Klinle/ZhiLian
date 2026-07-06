@@ -158,6 +158,7 @@ interface SettingsStore {
   useMemory: boolean;
   useTools: boolean;
   useLocalEmbedding: boolean;
+  useMultiAgent: boolean;
 
   // Actions
   setOpenaiApiKey: (key: string) => void;
@@ -169,6 +170,7 @@ interface SettingsStore {
   setUseMemory: (value: boolean) => void;
   setUseTools: (value: boolean) => void;
   setUseLocalEmbedding: (value: boolean) => void;
+  setUseMultiAgent: (value: boolean) => void;
   getEffectiveApiKey: () => string;
 }
 
@@ -191,6 +193,7 @@ export const useSettingsStore = create<SettingsStore>()(
       useMemory: false,
       useTools: false,
       useLocalEmbedding: false,
+      useMultiAgent: false,
 
       setOpenaiApiKey: (key) => set({ openaiApiKey: key }),
       setModel: (model) => set({ model }),
@@ -207,6 +210,7 @@ export const useSettingsStore = create<SettingsStore>()(
       setUseMemory: (value) => set({ useMemory: value }),
       setUseTools: (value) => set({ useTools: value }),
       setUseLocalEmbedding: (value) => set({ useLocalEmbedding: value }),
+      setUseMultiAgent: (value) => set({ useMultiAgent: value }),
       getEffectiveApiKey: () => {
         const state = get();
         const provider = state.selectedProvider;
