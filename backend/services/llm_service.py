@@ -1,3 +1,4 @@
+import json
 from importlib import import_module
 from typing import AsyncIterable, Optional, Dict, Any, List
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -79,6 +80,75 @@ class LLMService:
                 if args:
                     accumulated[idx]["function"]["arguments"] += args
         return accumulated
+
+    async def _execute_tool_calls(
+        self,
+        tool_calls: Dict[int, Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """
+        执行累积完成的 tool_calls，返回可追加到 messages 的消息列表。
+
+        消息格式：
+        1. assistant 消息（含完整 tool_calls 列表）
+        2. 每个工具的 tool 消息（用 tool_call_id 关联）
+
+        Args:
+            tool_calls: 累积完成的 tool_calls，key=index
+
+        Returns:
+            可追加到 messages 的消息列表
+        """
+        # 按 index 排序，构造标准格式的 tool_calls 列表
+        sorted_calls = [tool_calls[k] for k in sorted(tool_calls.keys())]
+
+        assistant_tool_calls = [
+            {
+                "id": tc["id"],
+                "type": tc["type"],
+                "function": {
+                    "name": tc["function"]["name"],
+                    "arguments": tc["function"]["arguments"],
+                },
+            }
+            for tc in sorted_calls
+        ]
+
+        messages: list[dict] = [
+            {"role": "assistant", "tool_calls": assistant_tool_calls}
+        ]
+
+        # 逐个执行工具，将结果作为 tool 消息追加
+        for tc in sorted_calls:
+            tool_name = tc["function"]["name"]
+            # 解析工具参数（容错处理）
+            try:
+                arguments = (
+                    json.loads(tc["function"]["arguments"])
+                    if tc["function"]["arguments"]
+                    else {}
+                )
+            except json.JSONDecodeError:
+                arguments = {}
+
+            try:
+                result = await tools_service.execute_tool(tool_name, arguments)
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": result,
+                    }
+                )
+            except Exception as e:
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": f"Error executing tool '{tool_name}': {str(e)}",
+                    }
+                )
+
+        return messages
 
     async def stream_chat(
         self,
