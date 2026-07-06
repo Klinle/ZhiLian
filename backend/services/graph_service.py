@@ -326,9 +326,13 @@ class GraphService:
                 if content:
                     results_parts.append(f"### {agent_name} 的结果\n{content}")
 
-        # 无任何结果时返回默认回答
+        # 无任何结果时（general 领域），直接生成通用回答
         if not results_parts:
-            return {"final_answer": "抱歉，无法生成回答。", "needs_review": False}
+            general_prompt = "你是一个友好的 AI 助手，请回答用户的问题。"
+            general_answer = await self._call_llm(
+                general_prompt, user_message, api_key, model, base_url
+            )
+            return {"final_answer": general_answer or "抱歉，无法生成回答。", "needs_review": False}
 
         results_text = "\n\n".join(results_parts)
 
@@ -420,6 +424,113 @@ class GraphService:
             self._app = self._build_workflow()
         result = await self._app.ainvoke(state)
         return result
+
+    async def run_stream(self, state: AgentState):
+        """
+        流式执行多 Agent 工作流，yield 事件字典。
+
+        用于 SSE 端点，前端可实时展示各节点工作状态和最终回答。
+
+        事件类型：
+        - status: {type, node, label, status, message?, data?}
+        - content: {type, text}
+        - done: {type}
+        """
+        if self._app is None:
+            self._app = self._build_workflow()
+
+        # 节点名称到中文标签的映射
+        node_labels = {
+            "orchestrator": "任务分析",
+            "rag_bot": "知识检索",
+            "graph_bot": "LangGraph 教学",
+            "ops_bot": "LLMOps 运维",
+            "reviewer": "聚合审查",
+        }
+
+        # 1. 发送 orchestrator running 事件
+        yield {
+            "type": "status",
+            "node": "orchestrator",
+            "label": node_labels["orchestrator"],
+            "status": "running",
+            "message": "正在分析问题...",
+        }
+
+        final_answer = ""
+        needs_review = False
+
+        # 2. 流式执行，每个节点完成后获取状态更新
+        async for chunk in self._app.astream(state, stream_mode="updates"):
+            for node_name, state_update in chunk.items():
+                if node_name == "orchestrator":
+                    sub_tasks = state_update.get("sub_tasks", [])
+                    needs_review = state_update.get("needs_review", False)
+                    yield {
+                        "type": "status",
+                        "node": "orchestrator",
+                        "label": node_labels["orchestrator"],
+                        "status": "done",
+                        "data": {
+                            "sub_tasks": sub_tasks,
+                            "needs_review": needs_review,
+                        },
+                    }
+                    # 预测下一个节点
+                    next_node = self.route_to_agents({"sub_tasks": sub_tasks})
+                    if next_node != "reviewer":
+                        yield {
+                            "type": "status",
+                            "node": next_node,
+                            "label": node_labels.get(next_node, next_node),
+                            "status": "running",
+                            "message": "正在处理...",
+                        }
+                    else:
+                        # general 域直接到 reviewer
+                        yield {
+                            "type": "status",
+                            "node": "reviewer",
+                            "label": node_labels["reviewer"],
+                            "status": "running",
+                            "message": "正在生成回答...",
+                        }
+
+                elif node_name in ("rag_bot", "graph_bot", "ops_bot"):
+                    agent_results = state_update.get("agent_results", {})
+                    yield {
+                        "type": "status",
+                        "node": node_name,
+                        "label": node_labels.get(node_name, node_name),
+                        "status": "done",
+                        "data": agent_results,
+                    }
+                    # 下一步是 reviewer
+                    yield {
+                        "type": "status",
+                        "node": "reviewer",
+                        "label": node_labels["reviewer"],
+                        "status": "running",
+                        "message": "正在聚合审查..." if needs_review else "正在生成回答...",
+                    }
+
+                elif node_name == "reviewer":
+                    final_answer = state_update.get("final_answer", "")
+                    yield {
+                        "type": "status",
+                        "node": "reviewer",
+                        "label": node_labels["reviewer"],
+                        "status": "done",
+                    }
+
+        # 3. 将最终回答分块 yield（假流式，保持逐字输出体验）
+        if final_answer:
+            chunk_size = 20
+            for i in range(0, len(final_answer), chunk_size):
+                yield {"type": "content", "text": final_answer[i:i + chunk_size]}
+
+        # 4. 发送完成事件
+        yield {"type": "done"}
 
 
 # 全局实例

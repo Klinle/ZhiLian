@@ -668,3 +668,154 @@ class TestBuildWorkflow:
         mock_gra.assert_called_once()
         mock_rev.assert_called_once()
         assert result.get("final_answer") == "LangGraph 回答"
+
+
+class TestRunStream:
+    """run_stream() 流式执行测试"""
+
+    @pytest.fixture
+    def service(self):
+        return GraphService()
+
+    @pytest.mark.asyncio
+    async def test_rag_path_events(self, service):
+        """测试：RAG 路径的事件序列"""
+        async def mock_astream(state, stream_mode=None):
+            yield {"orchestrator": {"sub_tasks": [{"domain": "rag", "task": "test"}], "needs_review": False}}
+            yield {"rag_bot": {"agent_results": {"rag": {"context": "RAG content", "error": None}}}}
+            yield {"reviewer": {"final_answer": "最终回答", "needs_review": False}}
+
+        mock_app = MagicMock()
+        mock_app.astream = mock_astream
+        service._app = mock_app
+
+        state: AgentState = {
+            "user_message": "什么是RAG？",
+            "api_key": "test-key",
+            "model": "test-model",
+        }
+
+        events = []
+        async for event in service.run_stream(state):
+            events.append(event)
+
+        # 验证事件序列
+        # 1. orchestrator running
+        assert events[0]["type"] == "status"
+        assert events[0]["node"] == "orchestrator"
+        assert events[0]["status"] == "running"
+
+        # 2. orchestrator done
+        assert events[1]["type"] == "status"
+        assert events[1]["node"] == "orchestrator"
+        assert events[1]["status"] == "done"
+        assert events[1]["data"]["sub_tasks"][0]["domain"] == "rag"
+
+        # 3. rag_bot running
+        assert events[2]["type"] == "status"
+        assert events[2]["node"] == "rag_bot"
+        assert events[2]["status"] == "running"
+
+        # 4. rag_bot done
+        assert events[3]["type"] == "status"
+        assert events[3]["node"] == "rag_bot"
+        assert events[3]["status"] == "done"
+
+        # 5. reviewer running
+        assert events[4]["type"] == "status"
+        assert events[4]["node"] == "reviewer"
+        assert events[4]["status"] == "running"
+
+        # 6. reviewer done
+        assert events[5]["type"] == "status"
+        assert events[5]["node"] == "reviewer"
+        assert events[5]["status"] == "done"
+
+        # 7. content event
+        assert events[6]["type"] == "content"
+        assert events[6]["text"] == "最终回答"
+
+        # 8. done event
+        assert events[-1]["type"] == "done"
+
+    @pytest.mark.asyncio
+    async def test_general_path_events(self, service):
+        """测试：general 路径的事件序列（跳过 Agent）"""
+        async def mock_astream(state, stream_mode=None):
+            yield {"orchestrator": {"sub_tasks": [{"domain": "general", "task": "你好"}], "needs_review": False}}
+            yield {"reviewer": {"final_answer": "你好！", "needs_review": False}}
+
+        mock_app = MagicMock()
+        mock_app.astream = mock_astream
+        service._app = mock_app
+
+        state: AgentState = {
+            "user_message": "你好",
+            "api_key": "test-key",
+            "model": "test-model",
+        }
+
+        events = []
+        async for event in service.run_stream(state):
+            events.append(event)
+
+        # orchestrator done → reviewer running（跳过 Agent）
+        assert events[0]["node"] == "orchestrator"
+        assert events[0]["status"] == "running"
+        assert events[1]["node"] == "orchestrator"
+        assert events[1]["status"] == "done"
+        assert events[2]["node"] == "reviewer"
+        assert events[2]["status"] == "running"
+        assert events[3]["node"] == "reviewer"
+        assert events[3]["status"] == "done"
+        assert events[4]["type"] == "content"
+        assert events[4]["text"] == "你好！"
+        assert events[-1]["type"] == "done"
+
+    @pytest.mark.asyncio
+    async def test_content_chunking(self, service):
+        """测试：最终回答分块"""
+        long_answer = "A" * 50  # 50 chars → 3 chunks (20+20+10)
+        async def mock_astream(state, stream_mode=None):
+            yield {"orchestrator": {"sub_tasks": [{"domain": "general"}], "needs_review": False}}
+            yield {"reviewer": {"final_answer": long_answer, "needs_review": False}}
+
+        mock_app = MagicMock()
+        mock_app.astream = mock_astream
+        service._app = mock_app
+
+        events = []
+        async for event in service.run_stream({"user_message": "test", "api_key": "k", "model": "m"}):
+            events.append(event)
+
+        content_events = [e for e in events if e["type"] == "content"]
+        assert len(content_events) == 3
+        assert content_events[0]["text"] == "A" * 20
+        assert content_events[1]["text"] == "A" * 20
+        assert content_events[2]["text"] == "A" * 10
+
+    @pytest.mark.asyncio
+    async def test_label_in_events(self, service):
+        """测试：事件包含中文标签"""
+        async def mock_astream(state, stream_mode=None):
+            yield {"orchestrator": {"sub_tasks": [{"domain": "rag"}], "needs_review": False}}
+            yield {"rag_bot": {"agent_results": {"rag": {"context": "x"}}}}
+            yield {"reviewer": {"final_answer": "ans", "needs_review": False}}
+
+        mock_app = MagicMock()
+        mock_app.astream = mock_astream
+        service._app = mock_app
+
+        events = []
+        async for event in service.run_stream({"user_message": "t", "api_key": "k", "model": "m"}):
+            events.append(event)
+
+        # 验证标签
+        orchestrator_events = [e for e in events if e.get("node") == "orchestrator"]
+        assert orchestrator_events[0]["label"] == "任务分析"
+
+        rag_events = [e for e in events if e.get("node") == "rag_bot"]
+        assert rag_events[0]["label"] == "知识检索"
+
+        reviewer_events = [e for e in events if e.get("node") == "reviewer"]
+        assert reviewer_events[0]["label"] == "聚合审查"
