@@ -38,21 +38,35 @@ export interface Submission {
   ai_feedback?: string;
   created_at: string;
 }
-export interface Message {
+export interface KnowledgeNode {
   id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  createdAt: string;
+  code: string;
+  name: string;
+  category: string;
+  description: string;
+  pagerank_weight: number;
+  is_lighted: boolean;
+  proficiency: number;
+  study_duration: number;
 }
 
-export interface Conversation {
+export interface RecommendedNode {
   id: string;
-  title: string;
-  createdAt: string;
-  updatedAt: string;
+  code: string;
+  name: string;
+  category: string;
+  description: string;
+  pagerank: number;
+  proficiency: number;
+  reason: string;
 }
 
-export interface Settings {
-  openaiApiKey: string;
-  model: string;
+export interface ProfileStats {
+  lighted_nodes: number;
+  total_nodes: number;
+  pass_rate: number;
+  passed_labs: number;
+  total_submissions: number;
+  study_duration_hours: number;
+  memory_count: number;
 }
