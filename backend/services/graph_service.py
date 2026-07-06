@@ -191,6 +191,81 @@ class GraphService:
 
         return {"agent_results": agent_results}
 
+    async def _call_llm(
+        self,
+        system_prompt: str,
+        user_message: str,
+        api_key: str,
+        model: str,
+        base_url: Optional[str] = None,
+    ) -> str:
+        """
+        调用 LLM 生成回复（非流式）
+
+        供 GraphBot / OpsBot / Reviewer 等节点共用的 LLM 调用辅助方法。
+        """
+        from openai import AsyncOpenAI
+
+        effective_api_key = api_key or settings.DEEPSEEK_API_KEY
+        effective_base_url = base_url or settings.DEEPSEEK_BASE_URL
+        effective_model = model or settings.DEEPSEEK_MODEL
+
+        if not effective_api_key:
+            return ""
+
+        client = AsyncOpenAI(api_key=effective_api_key, base_url=effective_base_url)
+
+        try:
+            response = await client.chat.completions.create(
+                model=effective_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message},
+                ],
+            )
+            return response.choices[0].message.content or ""
+        except Exception as e:
+            print(f"[LLM] 调用失败: {e}")
+            return ""
+
+    async def graph_bot_node(self, state: AgentState) -> dict:
+        """
+        GraphBot 节点：LangGraph 教学辅导
+
+        基于用户消息和 RagBot 的中间结果（如有），
+        使用 LLM 生成 LangGraph 领域的教学内容。
+        """
+        user_message = state.get("user_message", "")
+        api_key = state.get("api_key", "")
+        model = state.get("model", "")
+        base_url = state.get("base_url")
+        agent_results = state.get("agent_results", {})
+
+        # 读取 RagBot 的中间结果（如有）
+        rag_context = ""
+        if "rag" in agent_results:
+            rag_context = agent_results["rag"].get("context", "")
+
+        system_prompt = (
+            "你是一位 LangGraph 教学导师，专精状态机设计、多智能体编排、"
+            "条件路由、状态持久化等 LangGraph 核心概念。"
+            "请用清晰易懂的方式讲解，配合代码示例。"
+        )
+
+        # 如果有 RAG 上下文，注入到 prompt 中
+        if rag_context:
+            system_prompt += (
+                "\n\n## 知识库参考资料\n"
+                f"{rag_context}"
+            )
+
+        content = await self._call_llm(
+            system_prompt, user_message, api_key, model, base_url
+        )
+
+        agent_results["langgraph"] = {"content": content, "error": None if content else "LLM 返回空内容"}
+        return {"agent_results": agent_results}
+
     def _build_workflow(self):
         """
         构建 LangGraph StateGraph 工作流
