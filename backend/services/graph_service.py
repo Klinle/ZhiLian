@@ -266,6 +266,44 @@ class GraphService:
         agent_results["langgraph"] = {"content": content, "error": None if content else "LLM 返回空内容"}
         return {"agent_results": agent_results}
 
+    async def ops_bot_node(self, state: AgentState) -> dict:
+        """
+        OpsBot 节点：LLMOps 评测运维辅导
+
+        基于用户消息和其他 Agent 的中间结果，
+        使用 LLM 生成 LLMOps 领域的运维/评测内容。
+        """
+        user_message = state.get("user_message", "")
+        api_key = state.get("api_key", "")
+        model = state.get("model", "")
+        base_url = state.get("base_url")
+        agent_results = state.get("agent_results", {})
+
+        # 读取 RagBot 的中间结果（如有）
+        rag_context = ""
+        if "rag" in agent_results:
+            rag_context = agent_results["rag"].get("context", "")
+
+        system_prompt = (
+            "你是一位 LLMOps 运维导师，专精模型评测、监控、部署、"
+            "容器化、性能测试、A/B 测试等 LLMOps 核心实践。"
+            "请用清晰易懂的方式讲解，配合实际操作步骤。"
+        )
+
+        # 如果有 RAG 上下文，注入到 prompt 中
+        if rag_context:
+            system_prompt += (
+                "\n\n## 知识库参考资料\n"
+                f"{rag_context}"
+            )
+
+        content = await self._call_llm(
+            system_prompt, user_message, api_key, model, base_url
+        )
+
+        agent_results["llmops"] = {"content": content, "error": None if content else "LLM 返回空内容"}
+        return {"agent_results": agent_results}
+
     def _build_workflow(self):
         """
         构建 LangGraph StateGraph 工作流

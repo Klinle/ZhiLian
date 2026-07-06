@@ -339,3 +339,91 @@ class TestGraphBotNode:
         call_args = mock_llm.call_args
         system_prompt = call_args[0][0]
         assert "知识库参考资料" not in system_prompt
+
+
+class TestOpsBotNode:
+    """OpsBot 运维节点测试"""
+
+    @pytest.fixture
+    def service(self):
+        return GraphService()
+
+    @pytest.mark.asyncio
+    async def test_normal_generation(self, service):
+        """测试：正常生成 LLMOps 运维内容"""
+        with patch.object(
+            service, "_call_llm", new_callable=AsyncMock,
+            return_value="LLMOps 评测部署指南...",
+        ) as mock_llm:
+            state: AgentState = {
+                "user_message": "如何评测模型性能？",
+                "api_key": "test-key",
+                "model": "test-model",
+                "base_url": "http://test",
+            }
+            result = await service.ops_bot_node(state)
+
+        assert result["agent_results"]["llmops"]["content"] == "LLMOps 评测部署指南..."
+        assert result["agent_results"]["llmops"]["error"] is None
+        # 验证 system_prompt 包含 LLMOps 导师角色
+        call_args = mock_llm.call_args
+        system_prompt = call_args[0][0]
+        assert "LLMOps" in system_prompt
+
+    @pytest.mark.asyncio
+    async def test_rag_context_injected(self, service):
+        """测试：RagBot 中间结果注入到 system_prompt"""
+        with patch.object(
+            service, "_call_llm", new_callable=AsyncMock,
+            return_value="运维内容",
+        ) as mock_llm:
+            state: AgentState = {
+                "user_message": "模型部署",
+                "api_key": "test-key",
+                "model": "test-model",
+                "agent_results": {
+                    "rag": {"context": "RAG 运维知识", "error": None},
+                },
+            }
+            result = await service.ops_bot_node(state)
+
+        call_args = mock_llm.call_args
+        system_prompt = call_args[0][0]
+        assert "RAG 运维知识" in system_prompt
+
+    @pytest.mark.asyncio
+    async def test_empty_llm_response(self, service):
+        """测试：LLM 返回空内容时设置错误信息"""
+        with patch.object(
+            service, "_call_llm", new_callable=AsyncMock,
+            return_value="",
+        ):
+            state: AgentState = {
+                "user_message": "问题",
+                "api_key": "test-key",
+                "model": "test-model",
+            }
+            result = await service.ops_bot_node(state)
+
+        assert result["agent_results"]["llmops"]["content"] == ""
+        assert result["agent_results"]["llmops"]["error"] is not None
+
+    @pytest.mark.asyncio
+    async def test_no_rag_context(self, service):
+        """测试：无 RagBot 中间结果时正常生成"""
+        with patch.object(
+            service, "_call_llm", new_callable=AsyncMock,
+            return_value="运维内容",
+        ) as mock_llm:
+            state: AgentState = {
+                "user_message": "问题",
+                "api_key": "test-key",
+                "model": "test-model",
+                "agent_results": {},
+            }
+            result = await service.ops_bot_node(state)
+
+        assert result["agent_results"]["llmops"]["content"] == "运维内容"
+        call_args = mock_llm.call_args
+        system_prompt = call_args[0][0]
+        assert "知识库参考资料" not in system_prompt
