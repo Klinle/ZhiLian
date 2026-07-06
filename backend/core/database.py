@@ -23,6 +23,7 @@ async def init_db():
             "ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS chunk_metadata JSON",
             "ALTER TABLE documents ADD COLUMN IF NOT EXISTS owner_id UUID",
             "ALTER TABLE documents ADD COLUMN IF NOT EXISTS visibility VARCHAR(20) DEFAULT 'private'",
+            "ALTER TABLE documents ADD COLUMN IF NOT EXISTS is_active INTEGER DEFAULT 1",
             "ALTER TABLE labs ADD COLUMN IF NOT EXISTS lab_type VARCHAR(20) DEFAULT 'code'",
             "ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS node_id UUID",
             "ALTER TABLE memories ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id) ON DELETE CASCADE",

@@ -226,6 +226,9 @@ async def list_documents(
                 Document.visibility == "shared",
             )
         )
+    # 非管理员只能看到启用的文档；管理员可以看到所有文档
+    if current_user.role != "admin":
+        stmt = stmt.where(Document.is_active == 1)
     stmt = stmt.order_by(Document.created_at.desc())
 
     result = await session.execute(stmt)
@@ -240,6 +243,7 @@ async def list_documents(
             "created_at": doc.created_at.isoformat(),
             "owner_id": str(doc.owner_id) if doc.owner_id else None,
             "visibility": doc.visibility or "private",
+            "is_active": doc.is_active if doc.is_active is not None else 1,
             "is_owner": str(doc.owner_id) == str(current_user.id) if doc.owner_id else False,
         }
         for doc in documents

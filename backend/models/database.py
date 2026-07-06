@@ -48,6 +48,7 @@ class Document(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)  # 文档所有者
     visibility = Column(String(20), default="private")  # private, shared
+    is_active = Column(Integer, default=1)  # 1: 启用（用户可见，参与检索）, 0: 禁用（仅管理员可见）
 
     chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
 

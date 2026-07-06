@@ -35,6 +35,7 @@ class UserUpdateRequest(BaseModel):
 
 class DocumentUpdateRequest(BaseModel):
     visibility: Optional[str] = None  # private/shared
+    is_active: Optional[int] = None  # 1: 启用, 0: 禁用
 
 
 class LabCreateRequest(BaseModel):
@@ -258,6 +259,7 @@ async def admin_list_documents(
             "created_at": d.created_at.isoformat(),
             "owner_id": str(d.owner_id) if d.owner_id else None,
             "visibility": d.visibility or "private",
+            "is_active": d.is_active if d.is_active is not None else 1,
         }
         for d in docs
     ]
@@ -285,8 +287,13 @@ async def admin_update_document(
             raise HTTPException(400, "Invalid visibility")
         doc.visibility = request.visibility
 
+    if request.is_active is not None:
+        if request.is_active not in (0, 1):
+            raise HTTPException(400, "Invalid is_active value")
+        doc.is_active = request.is_active
+
     await session.commit()
-    return {"id": str(doc.id), "visibility": doc.visibility}
+    return {"id": str(doc.id), "visibility": doc.visibility, "is_active": doc.is_active}
 
 
 # ─── Labs CRUD ──────────────────────────────────────────────

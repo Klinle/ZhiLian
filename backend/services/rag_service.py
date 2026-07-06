@@ -34,9 +34,13 @@ class RAGService:
         stmt = select(DocumentChunk)
         if document_ids:
             stmt = stmt.where(DocumentChunk.document_id.in_(document_ids))
+        # Always join Document to filter out disabled documents
+        stmt = stmt.join(Document, DocumentChunk.document_id == Document.id).where(
+            Document.is_active == 1
+        )
         # Filter by user_id: only return chunks from user's own docs or shared docs
         if user_id:
-            stmt = stmt.join(Document, DocumentChunk.document_id == Document.id).where(
+            stmt = stmt.where(
                 or_(
                     Document.owner_id == uuid.UUID(user_id),
                     Document.visibility == "shared",
@@ -72,8 +76,13 @@ class RAGService:
             if document_ids:
                 stmt = stmt.where(DocumentChunk.document_id.in_(document_ids))
 
+            # Always join Document to filter out disabled documents
+            stmt = stmt.join(Document, DocumentChunk.document_id == Document.id).where(
+                Document.is_active == 1
+            )
+
             if user_id:
-                stmt = stmt.join(Document, DocumentChunk.document_id == Document.id).where(
+                stmt = stmt.where(
                     or_(
                         Document.owner_id == uuid.UUID(user_id),
                         Document.visibility == "shared",

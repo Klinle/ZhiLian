@@ -161,7 +161,7 @@ export const adminApi = {
     if (!response.ok) throw new Error("获取文档列表失败");
     return response.json();
   },
-  updateDocument: async (docId: string, data: { visibility?: string }) => {
+  updateDocument: async (docId: string, data: { visibility?: string; is_active?: number }) => {
     const response = await fetch(`${API_BASE_URL}/api/admin/documents/${docId}`, {
       method: "PUT",
       headers: getAuthHeaders(),

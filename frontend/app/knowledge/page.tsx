@@ -39,6 +39,7 @@ interface Document {
   created_at: string;
   owner_id?: string | null;
   visibility?: string;
+  is_active?: number;
   is_owner?: boolean;
 }
 
@@ -1114,35 +1115,39 @@ export default function KnowledgePage() {
                           >
                             <Eye className="h-4 w-4" />
                           </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleReprocess(doc);
-                            }}
-                            disabled={doc.status === "processing"}
-                            className={`p-2 rounded-lg transition-colors ${
-                              doc.status !== "processing"
-                                ? "hover:bg-amber-500/10 hover:text-amber-600"
-                                : "opacity-40 cursor-not-allowed"
-                            }`}
-                            title={
-                              doc.status === "processing"
-                                ? "处理中，请等待"
-                                : "重新处理（使用当前 Embedding 模型）"
-                            }
-                          >
-                            <RotateCcw className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDelete(doc.id);
-                            }}
-                            className="p-2 hover:bg-destructive/10 hover:text-destructive rounded-lg transition-colors"
-                            title="删除"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                          {(doc.is_owner || userRole === "admin") && (
+                            <>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleReprocess(doc);
+                                }}
+                                disabled={doc.status === "processing"}
+                                className={`p-2 rounded-lg transition-colors ${
+                                  doc.status !== "processing"
+                                    ? "hover:bg-amber-500/10 hover:text-amber-600"
+                                    : "opacity-40 cursor-not-allowed"
+                                }`}
+                                title={
+                                  doc.status === "processing"
+                                    ? "处理中，请等待"
+                                    : "重新处理（使用当前 Embedding 模型）"
+                                }
+                              >
+                                <RotateCcw className="h-4 w-4" />
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDelete(doc.id);
+                                }}
+                                className="p-2 hover:bg-destructive/10 hover:text-destructive rounded-lg transition-colors"
+                                title="删除"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </>
+                          )}
                         </div>
                       </div>
                     );
