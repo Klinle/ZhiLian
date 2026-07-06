@@ -45,7 +45,7 @@ export default function AdminLayout({ children, activePath }: AdminLayoutProps) 
       }
       if (role !== "admin") {
         // 非 admin 角色无权访问管理后台
-        router.push("/chat");
+        router.push("/");
         return;
       }
       if (storedNickname) {
