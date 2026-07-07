@@ -11,6 +11,7 @@ from api.knowledge import router as knowledge_router
 from api.labs import router as labs_router
 from api.profile import router as profile_router
 from api.admin import router as admin_router
+from api.collections import router as collections_router
 from core.database import init_db
 
 @asynccontextmanager
@@ -46,6 +47,7 @@ app.include_router(knowledge_router)
 app.include_router(labs_router)
 app.include_router(profile_router)
 app.include_router(admin_router)
+app.include_router(collections_router)
 
 @app.get("/")
 async def root():
