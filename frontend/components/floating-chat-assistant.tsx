@@ -70,8 +70,10 @@ export default function FloatingChatAssistant() {
   const [input, setInput] = useState("");
   const [showHistory, setShowHistory] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false); // 扩展到屏幕中央
+  const [showAgentMenu, setShowAgentMenu] = useState(false); // 导师选择下拉菜单
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const agentMenuRef = useRef<HTMLDivElement>(null);
 
   // 初始化获取对话列表
   useEffect(() => {
@@ -79,6 +81,19 @@ export default function FloatingChatAssistant() {
       fetchConversations();
     }
   }, [isOpen]);
+
+  // 点击外部关闭导师下拉菜单
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (agentMenuRef.current && !agentMenuRef.current.contains(e.target as Node)) {
+        setShowAgentMenu(false);
+      }
+    };
+    if (showAgentMenu) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showAgentMenu]);
 
   // 自动滚动到底部
   useEffect(() => {
@@ -314,25 +329,39 @@ export default function FloatingChatAssistant() {
 
       {/* 控制面板（导师选择与特性开关） */}
       <div className="p-2 border-b border-gray-100 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/20 flex items-center justify-between gap-1.5 flex-wrap">
-        {/* 导师切换 */}
-        <div className="relative group shrink-0">
-          <button className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 text-xs font-semibold text-gray-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-700/80 cursor-pointer">
+        {/* 导师切换 - 点击受控下拉菜单 */}
+        <div className="relative shrink-0" ref={agentMenuRef}>
+          <button
+            onClick={() => setShowAgentMenu(!showAgentMenu)}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 text-xs font-semibold text-gray-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-700/80 cursor-pointer transition-colors"
+          >
             {agentDisplayNames[selectedAgentId] || "自动导师"}
-            <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
+            <ChevronDown
+              className={`h-3.5 w-3.5 text-gray-400 transition-transform duration-200 ${
+                showAgentMenu ? "rotate-180" : ""
+              }`}
+            />
           </button>
-          <div className="absolute top-full left-0 mt-1 w-36 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl shadow-xl py-1 hidden group-hover:block z-20">
-            {Object.entries(agentDisplayNames).map(([id, name]) => (
-              <button
-                key={id}
-                onClick={() => setSelectedAgentId(id)}
-                className={`w-full text-left px-3 py-1.5 text-xs font-medium transition-colors hover:bg-slate-50 dark:hover:bg-zinc-700 cursor-pointer ${
-                  selectedAgentId === id ? "text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/10 font-bold" : "text-gray-600 dark:text-zinc-400"
-                }`}
-              >
-                {name}
-              </button>
-            ))}
-          </div>
+          {showAgentMenu && (
+            <div className="absolute top-full left-0 mt-1 w-36 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl shadow-xl py-1 z-20 animate-in fade-in slide-in-from-top-1 duration-150">
+              {Object.entries(agentDisplayNames).map(([id, name]) => (
+                <button
+                  key={id}
+                  onClick={() => {
+                    setSelectedAgentId(id);
+                    setShowAgentMenu(false);
+                  }}
+                  className={`w-full text-left px-3 py-1.5 text-xs font-medium transition-colors hover:bg-slate-50 dark:hover:bg-zinc-700 cursor-pointer ${
+                    selectedAgentId === id
+                      ? "text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/10 font-bold"
+                      : "text-gray-600 dark:text-zinc-400"
+                  }`}
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* 特性开关 */}
