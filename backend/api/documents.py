@@ -510,6 +510,66 @@ async def delete_document(
     return {"message": "Document deleted"}
 
 
+from pydantic import BaseModel as PydanticBaseModel
+
+class BatchDeleteRequest(PydanticBaseModel):
+    document_ids: List[str]
+
+
+@router.post("/batch-delete")
+async def batch_delete_documents(
+    body: BatchDeleteRequest,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """批量删除文档（仅管理员可调用）"""
+    from uuid import UUID
+
+    if current_user.role != "admin":
+        raise HTTPException(403, "仅管理员可执行批量删除")
+
+    if not body.document_ids:
+        raise HTTPException(400, "document_ids 不能为空")
+
+    succeeded = 0
+    failed_ids = []
+
+    for doc_id_str in body.document_ids:
+        try:
+            doc_uuid = UUID(doc_id_str)
+            result = await session.execute(select(Document).where(Document.id == doc_uuid))
+            doc = result.scalar_one_or_none()
+            if not doc:
+                failed_ids.append(doc_id_str)
+                continue
+
+            # 删除磁盘文件
+            if doc.file_path and os.path.exists(doc.file_path):
+                try:
+                    os.remove(doc.file_path)
+                except OSError:
+                    pass  # 文件删除失败不阻断数据库删除
+
+            # 删除向量分块（级联由 ORM 处理，若未配置级联则手动清理）
+            await session.execute(
+                delete(DocumentChunk).where(DocumentChunk.document_id == doc_uuid)
+            )
+            await session.delete(doc)
+            succeeded += 1
+        except Exception:
+            failed_ids.append(doc_id_str)
+            continue
+
+    await session.commit()
+
+    return {
+        "succeeded": succeeded,
+        "failed": len(failed_ids),
+        "failed_ids": failed_ids,
+    }
+
+
+
 @router.post("/{document_id}/reprocess")
 async def reprocess_document(
     document_id: str,

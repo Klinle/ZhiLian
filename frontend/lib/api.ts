@@ -1,3 +1,5 @@
+import type { Lab, LabFilterParams, KnowledgeNode, NodeContextPreview, GenerateBatchResult } from "@/types";
+
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -206,12 +208,104 @@ export const adminApi = {
     if (!response.ok) throw new Error("更新文档失败");
     return response.json();
   },
-  listLabs: async () => {
-    const response = await fetch(`${API_BASE_URL}/api/admin/labs`, {
+  // 文档上传（管理员专用，固定使用本地嵌入模型）
+  uploadDocument: async (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const params = new URLSearchParams();
+    params.append("use_local_embedding", "true");
+    const response = await fetch(
+      `${API_BASE_URL}/api/documents/upload?${params.toString()}`,
+      { method: "POST", headers: getAuthHeaderOnly(), body: formData }
+    );
+    if (!response.ok) {
+      let errMsg = "上传失败";
+      try {
+        const errData = await response.json();
+        errMsg = errData.detail || errData.message || errMsg;
+      } catch {
+        // ignore
+      }
+      throw new Error(errMsg);
+    }
+    return response.json();
+  },
+  // 重新处理文档（使用本地嵌入模型重新分块+向量化+知识提取）
+  reprocessDocument: async (docId: string) => {
+    const params = new URLSearchParams();
+    params.append("use_local_embedding", "true");
+    const response = await fetch(
+      `${API_BASE_URL}/api/documents/${docId}/reprocess?${params.toString()}`,
+      { method: "POST", headers: getAuthHeaders() }
+    );
+    if (!response.ok) throw new Error("重新处理失败");
+    return response.json();
+  },
+  // 删除文档
+  deleteDocument: async (docId: string) => {
+    const response = await fetch(`${API_BASE_URL}/api/documents/${docId}`, {
+      method: "DELETE",
       headers: getAuthHeaders(),
     });
-    if (!response.ok) throw new Error("获取实验列表失败");
+    if (!response.ok) throw new Error("删除文档失败");
     return response.json();
+  },
+  // 批量删除文档
+  batchDeleteDocuments: async (documentIds: string[]) => {
+    const response = await fetch(`${API_BASE_URL}/api/documents/batch-delete`, {
+      method: "POST",
+      headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ document_ids: documentIds }),
+    });
+    if (!response.ok) throw new Error("批量删除失败");
+    return response.json();
+  },
+  // 获取文档处理状态（含进度）
+  getDocumentStatus: async (docId: string) => {
+    const response = await fetch(`${API_BASE_URL}/api/documents/${docId}/status`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) throw new Error("获取文档状态失败");
+    return response.json();
+  },
+  // 获取文档内容（分页加载）
+  getDocumentContent: async (docId: string, startPage: number, endPage: number) => {
+    const params = new URLSearchParams();
+    params.append("start_page", String(startPage));
+    params.append("end_page", String(endPage));
+    const response = await fetch(
+      `${API_BASE_URL}/api/documents/${docId}/content?${params.toString()}`,
+      { headers: getAuthHeaders() }
+    );
+    if (!response.ok) throw new Error("获取文档内容失败");
+    return response.json();
+  },
+  // 获取 PDF 预览信息（总页数、文件大小）
+  getDocumentPreviewInfo: async (docId: string) => {
+    const response = await fetch(`${API_BASE_URL}/api/documents/${docId}/preview-info`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) throw new Error("获取预览信息失败");
+    return response.json();
+  },
+  // 文档文件 URL（用于 iframe 预览或下载）
+  getDocumentFileUrl: (docId: string) =>
+    `${API_BASE_URL}/api/documents/${docId}/file`,
+  listLabs: async (params?: LabFilterParams) => {
+    const query = new URLSearchParams();
+    if (params?.lab_type) query.append("lab_type", params.lab_type);
+    if (params?.difficulty) query.append("difficulty", params.difficulty);
+    if (params?.node_id) query.append("node_id", params.node_id);
+    if (params?.search) query.append("search", params.search);
+    const qs = query.toString();
+    const url = qs
+      ? `${API_BASE_URL}/api/admin/labs?${qs}`
+      : `${API_BASE_URL}/api/admin/labs`;
+    const response = await fetch(url, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) throw new Error("获取题库列表失败");
+    return response.json() as Promise<Lab[]>;
   },
   createLab: async (data: Record<string, unknown>) => {
     const response = await fetch(`${API_BASE_URL}/api/admin/labs`, {
@@ -219,7 +313,7 @@ export const adminApi = {
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
-    if (!response.ok) throw new Error("创建实验失败");
+    if (!response.ok) throw new Error("创建题目失败");
     return response.json();
   },
   updateLab: async (labId: string, data: Record<string, unknown>) => {
@@ -228,7 +322,7 @@ export const adminApi = {
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
-    if (!response.ok) throw new Error("更新实验失败");
+    if (!response.ok) throw new Error("更新题目失败");
     return response.json();
   },
   deleteLab: async (labId: string) => {
@@ -236,7 +330,7 @@ export const adminApi = {
       method: "DELETE",
       headers: getAuthHeaders(),
     });
-    if (!response.ok) throw new Error("删除实验失败");
+    if (!response.ok) throw new Error("删除题目失败");
     return response.json();
   },
   generateBatchLabs: async (params: {
@@ -253,24 +347,31 @@ export const adminApi = {
       headers: getAuthHeaders(),
       body: JSON.stringify(params),
     });
-    if (!response.ok) throw new Error("批量生成实验失败");
-    return response.json();
+    if (!response.ok) throw new Error("AI 批量生成题目失败");
+    return response.json() as Promise<GenerateBatchResult>;
   },
-  batchSaveLabs: async (data: { labs: any[] }) => {
+  batchSaveLabs: async (data: { labs: Record<string, unknown>[] }) => {
     const response = await fetch(`${API_BASE_URL}/api/admin/labs/batch-save`, {
       method: "POST",
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
-    if (!response.ok) throw new Error("批量保存实验失败");
+    if (!response.ok) throw new Error("批量导入题库失败");
     return response.json();
   },
   listKnowledgeNodes: async () => {
-    const response = await fetch(`${API_BASE_URL}/api/knowledge/nodes`, {
+    const response = await fetch(`${API_BASE_URL}/api/admin/knowledge-nodes`, {
       headers: getAuthHeaders(),
     });
     if (!response.ok) throw new Error("获取知识节点列表失败");
-    return response.json();
+    return response.json() as Promise<KnowledgeNode[]>;
+  },
+  getNodeContext: async (nodeId: string) => {
+    const response = await fetch(`${API_BASE_URL}/api/admin/knowledge-nodes/${nodeId}/context`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) throw new Error("获取知识上下文预览失败");
+    return response.json() as Promise<NodeContextPreview>;
   },
   listAgents: async () => {
     const response = await fetch(`${API_BASE_URL}/api/admin/agents`, {
@@ -322,15 +423,6 @@ export const knowledgeApi = {
       headers: getAuthHeaders(),
     });
     if (!response.ok) throw new Error("获取知识图谱失败");
-    return response.json();
-  },
-  toggleNodeLight: async (nodeId: string, light?: boolean) => {
-    const params = light !== undefined ? `?light=${light}` : "";
-    const response = await fetch(`${API_BASE_URL}/api/knowledge/nodes/${nodeId}/light${params}`, {
-      method: "POST",
-      headers: getAuthHeaders(),
-    });
-    if (!response.ok) throw new Error("点亮节点失败");
     return response.json();
   },
   getNodeLabs: async (nodeId: string) => {
