@@ -55,9 +55,12 @@ export default function AdminLayout({ children, activePath }: AdminLayoutProps) 
       // 响应式大小监听
       const handleResize = () => {
         const mobile = window.innerWidth < 768;
+        const narrow = window.innerWidth < 1024; // lg 断点
         setIsMobile(mobile);
         if (mobile) {
-          setCollapsed(true); // 移动端默认收起
+          setCollapsed(true); // 移动端默认收起（抽屉式）
+        } else if (narrow) {
+          setCollapsed(true); // 中等屏幕（768~1024）自动折叠为图标模式
         } else {
           setCollapsed(false); // 大屏幕默认展开
         }
@@ -118,7 +121,7 @@ export default function AdminLayout({ children, activePath }: AdminLayoutProps) 
   ];
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-[#0c0f1d] flex text-slate-800 dark:text-slate-100 font-sans antialiased transition-colors duration-300 relative">
+    <div className="h-screen bg-slate-50 dark:bg-[#0c0f1d] flex text-slate-800 dark:text-slate-100 font-sans antialiased transition-colors duration-300 relative overflow-hidden">
       
       {/* 移动端侧栏遮罩 */}
       {isMobile && !collapsed && (
@@ -138,7 +141,7 @@ export default function AdminLayout({ children, activePath }: AdminLayoutProps) 
             : `relative transition-all duration-300 ${
                 collapsed ? "w-16" : "w-64"
               }`
-        } bg-[#121424] text-slate-300 border-r border-[#1f233a] flex flex-col shrink-0 h-full`}
+        } bg-[#121424] text-slate-300 border-r border-[#1f233a] flex flex-col shrink-0 h-screen`}
       >
         {/* Sidebar Header */}
         <div className="h-16 flex items-center justify-between px-4 border-b border-[#1f233a]">

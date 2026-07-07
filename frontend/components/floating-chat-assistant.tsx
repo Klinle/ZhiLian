@@ -19,7 +19,9 @@ import {
   Loader2,
   Paperclip,
   Activity,
-  Network
+  Network,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import { WorkflowPanel } from "@/components/workflow-panel";
 
@@ -67,6 +69,7 @@ export default function FloatingChatAssistant() {
 
   const [input, setInput] = useState("");
   const [showHistory, setShowHistory] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false); // 扩展到屏幕中央
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -189,7 +192,22 @@ export default function FloatingChatAssistant() {
   };
 
   return (
-    <div className="fixed bottom-6 right-6 w-[400px] h-[600px] bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md rounded-2xl border border-gray-200 dark:border-zinc-800 shadow-2xl flex flex-col overflow-hidden z-50 transition-all duration-300 animate-in fade-in slide-in-from-bottom-6">
+    <>
+      {/* 扩展模式：屏幕中央半透明遮罩 */}
+      {isExpanded && (
+        <div
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40"
+          onClick={() => setIsExpanded(false)}
+        />
+      )}
+
+      <div
+        className={`fixed z-50 flex flex-col overflow-hidden transition-all duration-300 animate-in ${
+          isExpanded
+            ? "inset-0 m-auto w-[min(700px,95vw)] h-[85vh] rounded-2xl shadow-2xl fade-in zoom-in-95"
+            : "bottom-6 right-6 w-[400px] h-[600px] rounded-2xl shadow-2xl slide-in-from-bottom-6 fade-in"
+        } bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md border border-gray-200 dark:border-zinc-800`}
+      >
       {/* 头部 */}
       <div className="p-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white flex items-center justify-between shadow-md">
         <div className="flex items-center gap-2.5">
@@ -227,6 +245,18 @@ export default function FloatingChatAssistant() {
             title="新对话"
           >
             <Plus className="h-4 w-4" />
+          </button>
+          {/* 扩展 / 还原 按钮 */}
+          <button
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="p-1.5 hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
+            title={isExpanded ? "还原窗口" : "全屏展开"}
+          >
+            {isExpanded ? (
+              <Minimize2 className="h-4 w-4" />
+            ) : (
+              <Maximize2 className="h-4 w-4" />
+            )}
           </button>
           <button
             onClick={closeAssistant}
@@ -495,6 +525,7 @@ export default function FloatingChatAssistant() {
           </button>
         </div>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
