@@ -319,16 +319,27 @@ class EvaluationService:
 }}
 ```"""
         elif exercise_type == "arrange":
-1. 提供 4 到 5 个逻辑步骤（如：三次握手的顺序，或冒泡排序内层循环的执行顺序）。
+            system_prompt = "你是 Python 游戏开发教学专家，擅长设计步骤逻辑排序题。请严格按 JSON 格式输出，不要包含其他文本。"
+            user_prompt = f"""请针对以下知识点生成一道步骤排序题，帮助学员加深对 Python 代码执行顺序或游戏开发流程的理解。
+
+## 知识点信息
+- 名称: {node_name}
+- 领域: {node_category}
+- 描述: {node_description}
+- 学员当前状态: {mastery_desc}
+- 目标难度: {difficulty}
+{profile_section}{knowledge_section}
+## 生成要求
+1. 提供 4 到 5 个具有强逻辑顺序的 Python/游戏开发步骤（如：Python 装饰器内层函数与外层函数的加载执行顺序、游戏主循环经典阶段『输入->物理更新->碰撞检测->画面渲染』的流转、或者是 SQLite 数据库事务回滚的步骤）。
 2. steps 字段是打乱顺序后的步骤列表。
 3. correct_order 字段提供正确的排序索引序列（对应打乱后的 steps 下标，比如 [1, 0, 2, 3]）。
-4. 包含 `detailed_explanation`，用生活场景类比（如排队、做菜）解释为什么要遵循这个正确的执行顺序。
+4. 包含 `detailed_explanation`，用生活场景类比（如做菜、排队）解释为什么要遵循这个正确的执行顺序。
 
 ## 输出格式（严格 JSON）
 ```json
 {{
     "title": "流程排序练习标题",
-    "description": "步骤排序：请将打乱的步骤调整为正确的先后逻辑顺序。",
+    "description": "步骤排序：请将打乱的 Python 步骤或游戏设计流程调整为正确的先后逻辑顺序。",
     "detailed_explanation": "总解析：解释为什么要按照这个顺序进行...",
     "test_cases": {{
         "steps": ["打乱步骤1", "打乱步骤2", "打乱步骤3", "打乱步骤4"],
