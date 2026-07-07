@@ -24,6 +24,8 @@ import {
   Minimize2,
 } from "lucide-react";
 import { WorkflowPanel } from "@/components/workflow-panel";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 export default function FloatingChatAssistant() {
   const {
@@ -161,7 +163,63 @@ export default function FloatingChatAssistant() {
     clearContext();
   };
 
-  // 渲染流式消息的类比高亮
+  // Markdown 渲染配置：统一的样式戏制
+  const markdownComponents = {
+    p: ({ children }: { children?: React.ReactNode }) => (
+      <p className="mb-1.5 last:mb-0 leading-relaxed">{children}</p>
+    ),
+    strong: ({ children }: { children?: React.ReactNode }) => (
+      <strong className="font-bold text-gray-900 dark:text-zinc-100">{children}</strong>
+    ),
+    em: ({ children }: { children?: React.ReactNode }) => (
+      <em className="italic text-gray-700 dark:text-zinc-300">{children}</em>
+    ),
+    h1: ({ children }: { children?: React.ReactNode }) => (
+      <h1 className="text-base font-bold mt-3 mb-1.5 text-gray-900 dark:text-zinc-100">{children}</h1>
+    ),
+    h2: ({ children }: { children?: React.ReactNode }) => (
+      <h2 className="text-sm font-bold mt-2.5 mb-1 text-gray-900 dark:text-zinc-100">{children}</h2>
+    ),
+    h3: ({ children }: { children?: React.ReactNode }) => (
+      <h3 className="text-sm font-semibold mt-2 mb-1 text-gray-800 dark:text-zinc-200">{children}</h3>
+    ),
+    ul: ({ children }: { children?: React.ReactNode }) => (
+      <ul className="list-disc list-inside space-y-0.5 my-1.5 pl-1">{children}</ul>
+    ),
+    ol: ({ children }: { children?: React.ReactNode }) => (
+      <ol className="list-decimal list-inside space-y-0.5 my-1.5 pl-1">{children}</ol>
+    ),
+    li: ({ children }: { children?: React.ReactNode }) => (
+      <li className="text-sm leading-relaxed">{children}</li>
+    ),
+    code: ({ inline, children }: { inline?: boolean; children?: React.ReactNode }) =>
+      inline ? (
+        <code className="bg-slate-100 dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 px-1 py-0.5 rounded text-[0.8em] font-mono">
+          {children}
+        </code>
+      ) : (
+        <code className="block bg-slate-900 dark:bg-zinc-950 text-green-400 p-3 rounded-xl text-xs font-mono overflow-x-auto my-2 leading-relaxed">
+          {children}
+        </code>
+      ),
+    pre: ({ children }: { children?: React.ReactNode }) => (
+      <div className="my-2">{children}</div>
+    ),
+    blockquote: ({ children }: { children?: React.ReactNode }) => (
+      <blockquote className="border-l-4 border-indigo-300 dark:border-indigo-700 pl-3 my-2 text-gray-600 dark:text-zinc-400 italic text-sm">
+        {children}
+      </blockquote>
+    ),
+    hr: () => <hr className="border-gray-200 dark:border-zinc-700 my-2" />,
+    a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
+      <a href={href} target="_blank" rel="noopener noreferrer"
+        className="text-indigo-600 dark:text-indigo-400 underline hover:text-indigo-500 transition-colors">
+        {children}
+      </a>
+    ),
+  };
+
+  // 渲染流式消息的类比高亮（兼容 Markdown 渲染）
   const renderMessageContent = (content: string) => {
     if (content.includes("💡 类比：")) {
       const parts = content.split("💡 类比：");
@@ -172,17 +230,31 @@ export default function FloatingChatAssistant() {
       const after = lineBreakIdx !== -1 ? rest.substring(lineBreakIdx) : "";
       
       return (
-        <div className="space-y-2 whitespace-pre-wrap text-sm leading-relaxed">
-          {before && <div>{before}</div>}
+        <div className="text-sm space-y-2">
+          {before && (
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents as never}>
+              {before}
+            </ReactMarkdown>
+          )}
           <div className="bg-amber-50/80 dark:bg-amber-950/20 border-l-4 border-amber-500 text-amber-900 dark:text-amber-300 p-3.5 rounded-r-xl my-2 text-xs font-medium shadow-sm">
             <span className="font-bold block mb-1 text-amber-800 dark:text-amber-400">💡 通俗类比：</span>
             {analogyText.trim()}
           </div>
-          {after && <div>{after}</div>}
+          {after && (
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents as never}>
+              {after}
+            </ReactMarkdown>
+          )}
         </div>
       );
     }
-    return <div className="whitespace-pre-wrap text-sm leading-relaxed">{content}</div>;
+    return (
+      <div className="text-sm">
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents as never}>
+          {content}
+        </ReactMarkdown>
+      </div>
+    );
   };
 
   if (!isOpen) {
@@ -201,9 +273,9 @@ export default function FloatingChatAssistant() {
   // 导师风格映射
   const agentDisplayNames: Record<string, string> = {
     auto: "自动导师",
-    story_mentor: "故事家导师",
-    practice_mentor: "实操官导师",
-    quiz_mentor: "答疑官导师",
+    humor_mentor: "幽默大师",
+    academic_mentor: "严谨教授",
+    coach_mentor: "实战教练",
   };
 
   return (
