@@ -239,6 +239,39 @@ export const adminApi = {
     if (!response.ok) throw new Error("删除实验失败");
     return response.json();
   },
+  generateBatchLabs: async (params: {
+    node_id: string;
+    exercise_type: string;
+    difficulty?: string;
+    count?: number;
+    api_key?: string;
+    model?: string;
+    base_url?: string;
+  }) => {
+    const response = await fetch(`${API_BASE_URL}/api/admin/labs/generate-batch`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(params),
+    });
+    if (!response.ok) throw new Error("批量生成实验失败");
+    return response.json();
+  },
+  batchSaveLabs: async (data: { labs: any[] }) => {
+    const response = await fetch(`${API_BASE_URL}/api/admin/labs/batch-save`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error("批量保存实验失败");
+    return response.json();
+  },
+  listKnowledgeNodes: async () => {
+    const response = await fetch(`${API_BASE_URL}/api/knowledge/nodes`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) throw new Error("获取知识节点列表失败");
+    return response.json();
+  },
   listAgents: async () => {
     const response = await fetch(`${API_BASE_URL}/api/admin/agents`, {
       headers: getAuthHeaders(),
