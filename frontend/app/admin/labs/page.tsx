@@ -3,13 +3,14 @@
 import React, { useState, useEffect, useCallback } from "react";
 import AdminLayout from "@/components/admin-layout";
 import { adminApi } from "@/lib/api";
-import { Loader2, Plus, Trash2, Pencil, Award, X } from "lucide-react";
+import { Loader2, Plus, Trash2, Pencil, Award, X, Sparkles, AlertCircle } from "lucide-react";
 
 export default function AdminLabsPage() {
   const [labs, setLabs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingLab, setEditingLab] = useState<any>(null);
+  
   const [formData, setFormData] = useState({
     title: "",
     description: "",
@@ -18,6 +19,7 @@ export default function AdminLabsPage() {
     node_id: "",
     difficulty: "medium",
     lab_type: "code",
+    detailed_explanation: "",
   });
 
   const fetchLabs = useCallback(async () => {
@@ -44,42 +46,78 @@ export default function AdminLabsPage() {
       node_id: "",
       difficulty: "medium",
       lab_type: "code",
+      detailed_explanation: "",
     });
     setEditingLab(null);
     setShowForm(false);
   };
+
+  const getJsonTemplate = (type: string) => {
+    switch (type) {
+      case "quiz":
+        return `{\n  "questions": [\n    {\n      "id": "q1",\n      "text": "TCP 属于哪一层协议？",\n      "options": ["应用层", "传输层", "网络层", "物理层"],\n      "answer": 1\n    }\n  ]\n}`;
+      case "match":
+        return `{\n  "left": ["IP 协议", "TCP 协议"],\n  "right": ["负责邮局选址", "负责送货到家"],\n  "pairs": {\n    "IP 协议": "负责邮局选址",\n    "TCP 协议": "负责送货到家"\n  }\n}`;
+      case "arrange":
+        return `{\n  "steps": [\n    "发送 SYN 报文",\n    "接收 SYN+ACK 报文并发送 ACK",\n    "连接正式建立"\n  ],\n  "correct_order": [0, 1, 2]\n}`;
+      case "fill":
+        return `{\n  "text": "TCP 协议位于___层，而 IP 协议位于___层。",\n  "blanks": ["传输", "网络"]\n}`;
+      default:
+        return `{\n  "input": "test",\n  "expected": "output"\n}`;
+    }
+  };
+
+  // 当切换题型且 test_cases 为空时，自动填入对应题型的模版
+  useEffect(() => {
+    if (showForm && !formData.test_cases) {
+      setFormData((prev) => ({
+        ...prev,
+        test_cases: getJsonTemplate(prev.lab_type),
+      }));
+    }
+  }, [formData.lab_type, showForm]);
 
   const handleEdit = (lab: any) => {
     setEditingLab(lab);
     setFormData({
       title: lab.title || "",
       description: lab.description || "",
-      starter_code: "",
-      test_cases: "",
+      starter_code: lab.starter_code || "",
+      test_cases: lab.test_cases ? JSON.stringify(lab.test_cases, null, 2) : "",
       node_id: lab.node_id || "",
       difficulty: lab.difficulty || "medium",
       lab_type: lab.lab_type || "code",
+      detailed_explanation: lab.detailed_explanation || "",
     });
     setShowForm(true);
   };
 
   const handleSubmit = async () => {
     try {
-      const data: Record<string, unknown> = {
+      const data: Record<string, any> = {
         title: formData.title,
         description: formData.description || null,
         difficulty: formData.difficulty,
         lab_type: formData.lab_type,
+        detailed_explanation: formData.detailed_explanation || null,
       };
-      if (formData.starter_code) data.starter_code = formData.starter_code;
+      
+      if (formData.starter_code) {
+        data.starter_code = formData.starter_code;
+      }
+      
       if (formData.test_cases) {
         try {
           data.test_cases = JSON.parse(formData.test_cases);
         } catch {
-          // ignore parse error
+          alert("测试用例 JSON 格式不正确，请修改后重试！");
+          return;
         }
       }
-      if (formData.node_id) data.node_id = formData.node_id;
+      
+      if (formData.node_id) {
+        data.node_id = formData.node_id;
+      }
 
       if (editingLab) {
         await adminApi.updateLab(editingLab.id, data);
@@ -111,18 +149,20 @@ export default function AdminLabsPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-slate-900 dark:text-white">实验管理</h1>
-            <p className="text-xs text-slate-500 mt-1">管理代码实操与选择题实验</p>
+            <p className="text-xs text-slate-500 mt-1">管理代码实操与选择题、连线题、排序题、填空题等趣味题库</p>
           </div>
-          <button
-            onClick={() => {
-              resetForm();
-              setShowForm(true);
-            }}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            新建实验
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                resetForm();
+                setShowForm(true);
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 transition-all"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              新建实验
+            </button>
+          </div>
         </div>
 
         {loading ? (
@@ -152,12 +192,18 @@ export default function AdminLabsPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider font-mono ${
                         lab.lab_type === "quiz"
                           ? "bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400"
+                          : lab.lab_type === "match"
+                          ? "bg-purple-50 dark:bg-purple-950/40 text-purple-650 dark:text-purple-400"
+                          : lab.lab_type === "arrange"
+                          ? "bg-amber-50 dark:bg-amber-955/40 text-amber-600 dark:text-amber-400"
+                          : lab.lab_type === "fill"
+                          ? "bg-cyan-50 dark:bg-cyan-955/40 text-cyan-600 dark:text-cyan-400"
                           : "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400"
                       }`}>
-                        {lab.lab_type === "quiz" ? "选择题" : "代码实操"}
+                        {lab.lab_type}
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -232,11 +278,14 @@ export default function AdminLabsPage() {
                     <label className="text-xs font-medium text-slate-500 block mb-1">类型</label>
                     <select
                       value={formData.lab_type}
-                      onChange={(e) => setFormData({ ...formData, lab_type: e.target.value })}
+                      onChange={(e) => setFormData({ ...formData, lab_type: e.target.value, test_cases: "" })}
                       className="w-full text-sm px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
                     >
                       <option value="code">代码实操</option>
-                      <option value="quiz">选择题</option>
+                      <option value="quiz">选择题 (Quiz)</option>
+                      <option value="match">连线题 (Match)</option>
+                      <option value="arrange">排序题 (Arrange)</option>
+                      <option value="fill">填空题 (Fill)</option>
                     </select>
                   </div>
                   <div>
@@ -261,6 +310,18 @@ export default function AdminLabsPage() {
                     placeholder="UUID 格式"
                   />
                 </div>
+                
+                {/* 原理解析说明 */}
+                <div>
+                  <label className="text-xs font-medium text-slate-500 block mb-1">详细解答/原理解析 (用于 AI 互动讲解)</label>
+                  <textarea
+                    value={formData.detailed_explanation}
+                    onChange={(e) => setFormData({ ...formData, detailed_explanation: e.target.value })}
+                    className="w-full text-sm px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500 min-h-[80px]"
+                    placeholder="请输入详细的通俗原理解答..."
+                  />
+                </div>
+
                 {formData.lab_type === "code" && (
                   <div>
                     <label className="text-xs font-medium text-slate-500 block mb-1">起始代码</label>
@@ -273,27 +334,40 @@ export default function AdminLabsPage() {
                     />
                   </div>
                 )}
+
                 <div>
-                  <label className="text-xs font-medium text-slate-500 block mb-1">测试用例 (JSON)</label>
+                  <label className="text-xs font-medium text-slate-500 block mb-1 flex items-center justify-between">
+                    <span>测试用例 (JSON) *</span>
+                    <span className="text-[9px] text-indigo-500 font-mono">当前配置模版已载入</span>
+                  </label>
                   <textarea
                     value={formData.test_cases}
                     onChange={(e) => setFormData({ ...formData, test_cases: e.target.value })}
-                    className="w-full text-sm px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-900 text-slate-100 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 min-h-[100px]"
+                    className="w-full text-sm px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-900 text-slate-100 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 min-h-[120px] leading-relaxed"
                     placeholder='{"questions": [...] }'
                     spellCheck={false}
                   />
+                  <div className="mt-1.5 p-2 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-850 rounded-lg text-[9px] text-slate-400 font-sans leading-normal">
+                    <strong>配置提示：</strong>
+                    {formData.lab_type === "quiz" && "选择题 JSON 需包含 questions 数组，内含 id, text, options 数组与答案索引 answer。"}
+                    {formData.lab_type === "match" && "连线题 JSON 需包含 left, right 的数据数组与 pairs 键值对映射关系。"}
+                    {formData.lab_type === "arrange" && "排序题 JSON 需包含 steps 步骤文字数组与 correct_order 下标正确顺序。"}
+                    {formData.lab_type === "fill" && "填空题 JSON 需包含 text 挖空字符串（下划线 ___ 占位）与 blanks 标准关键字答案数组。"}
+                    {formData.lab_type === "code" && "编程题 JSON 可定义 test_cases 输入输出对用例。"}
+                  </div>
                 </div>
-                <div className="flex justify-end gap-2 pt-2">
+                
+                <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                   <button
                     onClick={resetForm}
-                    className="px-4 py-2 rounded-lg text-sm bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200"
+                    className="px-4 py-2 rounded-lg text-xs bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200"
                   >
                     取消
                   </button>
                   <button
                     onClick={handleSubmit}
                     disabled={!formData.title}
-                    className="px-4 py-2 rounded-lg text-sm bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+                    className="px-4 py-2 rounded-lg text-xs bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
                   >
                     {editingLab ? "保存" : "创建"}
                   </button>
