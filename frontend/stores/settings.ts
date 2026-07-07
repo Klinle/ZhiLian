@@ -189,7 +189,7 @@ export const useSettingsStore = create<SettingsStore>()(
       selectedProvider: "deepseek",
 
       // Feature toggles
-      useRAG: false,
+      useRAG: true,   // 知识库 RAG 默认开启，后续将导入六大领域知识点
       useMemory: false,
       useTools: false,
       useLocalEmbedding: false,
