@@ -88,7 +88,7 @@ class ProfileService:
     async def get_radar(
         self, session: AsyncSession, user_id: UUID
     ) -> dict:
-        """三方向（RAG/LangGraph/LLMOps）能力维度数据"""
+        """六方向（计算机基础）能力维度数据"""
 
         # 获取用户已点亮节点 + 按分类聚合
         stmt = (
@@ -121,19 +121,26 @@ class ProfileService:
         result_cat_total = await session.execute(stmt_cat_total)
         cat_totals = {row[0]: row[1] for row in result_cat_total.all()}
 
-        # Build radar data for three directions
-        directions = ["RAG", "LangGraph", "LLMOps"]
-        radar_data = []
+        # 计算机六大知识能力图谱中英文映射
+        category_mapping = {
+            "programming": "程序设计基础",
+            "dsa": "数据结构与算法",
+            "organization": "计算机组成原理",
+            "os": "操作系统",
+            "network": "计算机网络",
+            "database": "数据库系统"
+        }
 
-        for direction in directions:
-            data = category_data.get(direction, {"lighted": 0, "total_proficiency": 0.0})
-            total = cat_totals.get(direction, 0)
+        radar_data = []
+        for eng_cat, chn_name in category_mapping.items():
+            data = category_data.get(eng_cat, {"lighted": 0, "total_proficiency": 0.0})
+            total = cat_totals.get(eng_cat, 0)
             lighted = data["lighted"]
             avg_proficiency = (data["total_proficiency"] / lighted * 100) if lighted > 0 else 0
             coverage = round((lighted / total) * 100) if total > 0 else 0
 
             radar_data.append({
-                "direction": direction,
+                "direction": chn_name,
                 "coverage": coverage,
                 "proficiency": round(avg_proficiency),
                 "lighted": lighted,
@@ -142,9 +149,7 @@ class ProfileService:
 
         return {
             "indicators": [
-                {"name": "RAG", "max": 100},
-                {"name": "LangGraph", "max": 100},
-                {"name": "LLMOps", "max": 100},
+                {"name": name, "max": 100} for name in category_mapping.values()
             ],
             "values": radar_data,
         }
