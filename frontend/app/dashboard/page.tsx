@@ -25,6 +25,10 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<ProfileStats | null>(null);
   const [radar, setRadar] = useState<any>(null);
   const [recommends, setRecommends] = useState<RecommendedNode[]>([]);
+  
+  // 书籍与课程切换
+  const [documents, setDocuments] = useState<any[]>([]);
+  const [activeDocId, setActiveDocId] = useState<string>("");
 
   // 节点焦点聚焦
   const [selectedNode, setSelectedNode] = useState<KnowledgeNode | null>(null);
@@ -43,12 +47,12 @@ export default function DashboardPage() {
     }
   }, [router]);
 
-  // 并行获取首页所需的所有数据
-  const fetchDashboardData = useCallback(async (isRefresh = false) => {
+  // 并行获取首页所需的所有数据，支持传入书籍 ID 过滤
+  const fetchDashboardData = useCallback(async (isRefresh = false, docId = activeDocId) => {
     try {
       if (!isRefresh) setLoading(true);
       const [graphData, statsData, radarData, recommendsData] = await Promise.all([
-        knowledgeApi.getGraph(),
+        knowledgeApi.getGraph(docId || undefined),
         profileApi.getStats(),
         profileApi.getRadar(),
         knowledgeApi.recommendLearningPath(),
@@ -60,7 +64,6 @@ export default function DashboardPage() {
       setRadar(radarData);
       setRecommends(recommendsData || []);
       
-      // 如果当前聚焦了节点，刷新时同步更新该节点状态
       if (selectedNode) {
         const freshNode = (graphData.nodes || []).find((n: KnowledgeNode) => n.id === selectedNode.id);
         if (freshNode) setSelectedNode(freshNode);
@@ -70,13 +73,20 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedNode]);
+  }, [selectedNode, activeDocId]);
 
   useEffect(() => {
     if (mounted) {
-      fetchDashboardData();
+      fetchDashboardData(false, activeDocId);
+      // 并行拉取书籍列表
+      knowledgeApi.listUserDocuments()
+        .then((res) => {
+          const completedDocs = (res || []).filter((d: any) => d.status === "completed");
+          setDocuments(completedDocs);
+        })
+        .catch((err) => console.error("Failed to list docs:", err));
     }
-  }, [mounted]);
+  }, [mounted, activeDocId, fetchDashboardData]);
 
   // 蜂巢节点点击 — 直达练习页
   const handleNodeSelect = (node: KnowledgeNode) => {
@@ -127,15 +137,33 @@ export default function DashboardPage() {
                 通过图拓扑与多 Agent 协同，让计算机核心原理通俗易懂。
               </p>
             </div>
-            
-            <button
-              onClick={handleRecomputePageRank}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-zinc-800 hover:bg-slate-50 border border-gray-200 dark:border-zinc-700 rounded-xl text-xs font-semibold text-gray-600 dark:text-zinc-300 transition-colors shadow-sm cursor-pointer"
-              disabled={loading}
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin text-indigo-500" : ""}`} />
-              重算 PageRank 学习曲线
-            </button>
+            <div className="flex items-center gap-3">
+              {/* 书籍课程选择框 */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-gray-500 font-medium">当前学习:</span>
+                <select
+                  value={activeDocId}
+                  onChange={(e) => setActiveDocId(e.target.value)}
+                  className="px-3 py-1.5 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl text-xs font-semibold text-gray-700 dark:text-zinc-300 transition-colors shadow-sm outline-none cursor-pointer min-w-[200px]"
+                >
+                  <option value="">🐍 Python 经典游戏实训大本营</option>
+                  {documents.map((doc) => (
+                    <option key={doc.id} value={doc.id}>
+                      📖 {doc.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <button
+                onClick={handleRecomputePageRank}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-zinc-800 hover:bg-slate-50 border border-gray-200 dark:border-zinc-700 rounded-xl text-xs font-semibold text-gray-600 dark:text-zinc-300 transition-colors shadow-sm cursor-pointer"
+                disabled={loading}
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin text-indigo-500" : ""}`} />
+                重算 PageRank 学习曲线
+              </button>
+            </div>
           </div>
 
           {/* XP 进度条 */}

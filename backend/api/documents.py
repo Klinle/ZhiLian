@@ -118,7 +118,12 @@ async def _process_document_async(
 
             # 知识节点自动提取（异步，不阻塞文档处理完成状态）
             try:
+                # 1. 提取通用散乱概念（供 RAG 问答使用）
                 await knowledge_extraction_service.extract_nodes_from_document(
+                    document_id, session
+                )
+                # 2. 提炼该书的 12 个专属学习主线节点（供蜂巢技能树通关使用）
+                await knowledge_extraction_service.extract_book_nodes(
                     document_id, session
                 )
             except Exception as e:

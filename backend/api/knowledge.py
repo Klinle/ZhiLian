@@ -1,9 +1,9 @@
-"""知识图谱 API — 图数据、点亮、节点实验"""
+"""知识图谱 API — 图数据、节点实验"""
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional
 from uuid import UUID
+from typing import Optional
 
 from core.database import get_session
 from core.dependencies import get_current_user
@@ -15,32 +15,19 @@ router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
 @router.get("/graph")
 async def get_knowledge_graph(
+    document_id: Optional[str] = None,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    """返回全量 nodes + relations + 当前用户 UserKnowledgeState"""
-    return await knowledge_service.get_graph_data(session, current_user.id)
+    """返回学习路线 nodes + relations + 当前用户 UserKnowledgeState"""
+    parsed_doc_id = None
+    if document_id:
+        try:
+            parsed_doc_id = UUID(document_id)
+        except ValueError:
+            raise HTTPException(400, "Invalid document_id format")
 
-
-@router.post("/nodes/{node_id}/light")
-async def toggle_node_light(
-    node_id: str,
-    light: Optional[bool] = None,
-    session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-):
-    """切换节点点亮状态"""
-    try:
-        parsed_id = UUID(node_id)
-    except ValueError:
-        raise HTTPException(400, "Invalid node_id")
-
-    result = await knowledge_service.toggle_node_light(
-        session, current_user.id, parsed_id, light
-    )
-    if "error" in result:
-        raise HTTPException(404, result["error"])
-    return result
+    return await knowledge_service.get_graph_data(session, current_user.id, parsed_doc_id)
 
 
 @router.get("/nodes/{node_id}/labs")
@@ -56,3 +43,21 @@ async def get_node_labs(
         raise HTTPException(400, "Invalid node_id")
 
     return await knowledge_service.get_node_labs(session, parsed_id)
+
+
+@router.post("/pagerank")
+async def compute_pagerank(
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """计算并持久化学习路线子图 PageRank 权重（标准迭代算法）"""
+    return await knowledge_service.compute_pagerank(session)
+
+
+@router.get("/recommend")
+async def recommend_learning_path(
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """基于 PageRank + 前置依赖，推荐当前用户的下一步学习路径"""
+    return await knowledge_service.recommend_learning_path(session, current_user.id)

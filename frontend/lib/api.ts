@@ -418,11 +418,21 @@ export const profileApi = {
 };
 
 export const knowledgeApi = {
-  getGraph: async () => {
-    const response = await fetch(`${API_BASE_URL}/api/knowledge/graph`, {
+  getGraph: async (documentId?: string) => {
+    const url = documentId 
+      ? `${API_BASE_URL}/api/knowledge/graph?document_id=${documentId}`
+      : `${API_BASE_URL}/api/knowledge/graph`;
+    const response = await fetch(url, {
       headers: getAuthHeaders(),
     });
     if (!response.ok) throw new Error("获取知识图谱失败");
+    return response.json();
+  },
+  listUserDocuments: async (scope: string = "all") => {
+    const response = await fetch(`${API_BASE_URL}/api/documents/?scope=${scope}`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) throw new Error("获取学习文档列表失败");
     return response.json();
   },
   getNodeLabs: async (nodeId: string) => {

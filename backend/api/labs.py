@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 
 from core.database import get_session
 from core.dependencies import get_current_user
-from models.database import User, KnowledgeNode, UserKnowledgeState
+from models.database import User, KnowledgeNode, UserKnowledgeState, DocumentChunk
 from models.schemas import (
     LabSubmitRequest,
     GenerateExerciseRequest,
@@ -188,6 +188,19 @@ async def generate_exercise(
         profile_lines.append(f"- 全局薄弱领域: {', '.join(weak_domains)}")
     profile_context = "\n".join(profile_lines)
 
+    # 4. 获取与该节点关联的电子书分块参考资料（RAG 检索）
+    stmt_chunks = select(DocumentChunk).where(
+        DocumentChunk.node_id == node_uuid
+    ).limit(3)
+    result_chunks = await session.execute(stmt_chunks)
+    node_chunks = result_chunks.scalars().all()
+    
+    knowledge_context = ""
+    if node_chunks:
+        knowledge_context = "\n\n---\n\n".join(
+            f"[参考来源分块{idx+1}]\n{c.content}" for idx, c in enumerate(node_chunks)
+        )
+
     exercise = await evaluation_service.generate_targeted_exercise(
         node_name=node.name,
         node_description=node.description or "",
@@ -201,6 +214,7 @@ async def generate_exercise(
         base_url=request.base_url,
         learning_state=learning_state,
         profile_context=profile_context,
+        knowledge_context=knowledge_context,
     )
 
     if "error" in exercise:

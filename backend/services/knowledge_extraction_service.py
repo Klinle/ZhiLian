@@ -271,5 +271,174 @@ class KnowledgeExtractionService:
             print(f"[KnowledgeExtraction] LLM call error: {e}")
             return None
 
+    async def extract_book_nodes(
+        self,
+        document_id: UUID,
+        session: AsyncSession,
+    ) -> dict:
+        """从电子书大纲（前几个分块）中，AI 自动提炼生成 12 个专属学习路线节点及其拓扑关系，并入库标记 source='learning_path'。
+
+        此为通用电子书学习 MVP 模式核心逻辑，时间优先，节点限定为 12 个。
+        """
+        # 1. 提取文档前 5 个分块（通常包含目录、大纲或核心概述，约 6000 字符内）
+        stmt = select(DocumentChunk).where(
+            DocumentChunk.document_id == document_id
+        ).order_by(DocumentChunk.chunk_index).limit(5)
+        result = await session.execute(stmt)
+        outline_chunks = result.scalars().all()
+
+        if not outline_chunks:
+            print(f"[BookExtraction] 找不到任何 Chunks 对应 document_id: {document_id}")
+            return {"nodes_created": 0, "relations_created": 0}
+
+        outline_text = "\n\n".join(c.content for c in outline_chunks)[:8000]
+
+        # 2. 检查 API Key
+        api_key = settings.DEEPSEEK_API_KEY
+        if not api_key:
+            print("[BookExtraction] No DEEPSEEK_API_KEY configured, skipping book graph extraction")
+            return {"nodes_created": 0, "relations_created": 0}
+
+        # 3. 构造出题/构图 Prompt
+        system_prompt = "你是一位精通课程大纲与知识图谱设计的教育专家。请严格以 JSON 格式输出，不要包含其他解释文本。"
+        user_prompt = f"""请仔细阅读下面这本电子书的大纲和前言文本，为这本书量身定制一套「12个核心节点的自适应通关学习技能树」。
+
+## 书籍大纲文本
+{outline_text}
+
+## 生成与架构要求
+1. 必须并且只能提炼出【正好 12 个】最具代表性的核心知识点（由浅入深，形成递进学习通路）。
+2. 必须把这 12 个节点合理分配到以下 6 个核心 Category 中，每个 Category 【必须刚好分配 2 个节点】：
+   - "programming": 第一阶段，基础概念
+   - "dsa": 第二阶段，核心原理
+   - "organization": 第三阶段，构架设计
+   - "os": 第四阶段，高阶实操
+   - "network": 第五阶段，网络互联
+   - "database": 第六阶段，数据工程
+3. 必须生成节点之间的 Requires（前置依赖）拓扑边（关系不能有环，且能构成从第一阶段依次通关解锁到第六阶段的连贯路径）。
+4. 节点描述 description 必须是生动的“生活类比/游戏场景/实用价值”描述，控制在 40 字以内。
+
+## 输出 JSON 格式
+```json
+{{
+    "nodes": [
+        {{
+            "code": "NODE_VAR", // 仅使用大写英文下划线，短小
+            "name": "变量命名空间",
+            "category": "programming", // 必须是以上 6 个之一
+            "description": "游戏里的命名框与属性盒子"
+        }}
+    ],
+    "relations": [
+        {{
+            "source_code": "NODE_VAR",
+            "target_code": "NODE_CONTROL",
+            "relation_type": "requires"
+        }}
+    ]
+}}
+```"""
+
+        nodes_created = 0
+        relations_created = 0
+
+        try:
+            # 调用大模型执行图谱提炼
+            extraction = await self._call_llm_json(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                api_key=api_key,
+                model=settings.DEEPSEEK_MODEL,
+                base_url=settings.DEEPSEEK_BASE_URL,
+                temperature=0.3
+            )
+            
+            if not extraction:
+                return {"nodes_created": 0, "relations_created": 0}
+
+            extracted_nodes = extraction.get("nodes", [])
+            extracted_relations = extraction.get("relations", [])
+
+            suffix = f"{document_id.hex[:6]}"
+            node_code_to_id = {}
+
+            # 4. 插入 KnowledgeNode
+            for node_data in extracted_nodes:
+                orig_code = node_data.get("code", "").strip().upper()
+                name = node_data.get("name", "").strip()
+                category = node_data.get("category", "").strip()
+                description = node_data.get("description", "").strip()
+
+                if not orig_code or not name:
+                    continue
+                if category not in VALID_CATEGORIES:
+                    category = "programming"
+
+                # 拼接唯一 code 防止不同书籍在数据库唯一键冲突
+                code = f"{orig_code}_{suffix}"
+
+                node = KnowledgeNode(
+                    code=code,
+                    name=name,
+                    category=category,
+                    description=description,
+                    pagerank_weight=1.0,
+                    source="learning_path",
+                    document_id=document_id
+                )
+                session.add(node)
+                await session.flush()
+                node_code_to_id[orig_code] = node.id
+                nodes_created += 1
+
+            # 5. 插入 KnowledgeRelation
+            for rel_data in extracted_relations:
+                src_code = rel_data.get("source_code", "").strip().upper()
+                tgt_code = rel_data.get("target_code", "").strip().upper()
+                
+                if src_code not in node_code_to_id or tgt_code not in node_code_to_id:
+                    continue
+                if src_code == tgt_code:
+                    continue
+
+                src_id = node_code_to_id[src_code]
+                tgt_id = node_code_to_id[tgt_code]
+
+                rel = KnowledgeRelation(
+                    source_node_id=src_id,
+                    target_node_id=tgt_id,
+                    relation_type="requires"
+                )
+                session.add(rel)
+                relations_created += 1
+
+            # 6. 把书籍的所有 Chunks 与这 12 个节点绑定（基于包含节点名称的关键字模糊检索）
+            # 获取本书全部 Chunks
+            all_chunks_stmt = select(DocumentChunk).where(
+                DocumentChunk.document_id == document_id
+            )
+            all_chunks = (await session.execute(all_chunks_stmt)).scalars().all()
+            
+            # 对每一个新节点，查找包含其关键字的 Chunks 建立关联，供自适应 RAG 检索
+            for node_data in extracted_nodes:
+                name = node_data.get("name", "").strip()
+                orig_code = node_data.get("code", "").strip().upper()
+                node_id = node_code_to_id.get(orig_code)
+                if not node_id:
+                    continue
+                
+                for chunk in all_chunks:
+                    if chunk.node_id is None and (name in chunk.content or orig_code in chunk.content):
+                        chunk.node_id = node_id
+
+            await session.commit()
+            print(f"[BookExtraction] 书籍图谱提炼完毕！生成 {nodes_created} 个节点，{relations_created} 条依赖边")
+            return {"nodes_created": nodes_created, "relations_created": relations_created}
+
+        except Exception as e:
+            await session.rollback()
+            print(f"[BookExtraction] 书籍提取异常: {e}")
+            return {"nodes_created": 0, "relations_created": 0}
+
 
 knowledge_extraction_service = KnowledgeExtractionService()

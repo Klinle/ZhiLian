@@ -28,7 +28,7 @@ class Agent(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(100), nullable=False)
-    role_type = Column(String(50), default="rag_mentor")  # rag_mentor, langgraph_mentor, llmops_mentor
+    role_type = Column(String(50), default="humor_mentor")  # humor_mentor, academic_mentor, coach_mentor
     system_prompt = Column(Text, nullable=False)
     description = Column(String(255), nullable=True)
     is_active = Column(Integer, default=1)
@@ -136,14 +136,17 @@ class KnowledgeNode(Base):
     __tablename__ = "knowledge_nodes"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    code = Column(String(100), unique=True, nullable=False)  # 例如: "RAG_HYBRID"
+    code = Column(String(100), nullable=False)  # 取消全局唯一，防止不同电子书提取同名节点发生冲突
     name = Column(String(100), nullable=False)
-    category = Column(String(100))  # RAG, LangGraph, LLMOps
+    category = Column(String(100))  # programming, dsa, organization, os, network, database
     description = Column(Text, nullable=True)
     pagerank_weight = Column(Float, default=1.0)
+    source = Column(String(30), default="extraction")  # learning_path（学习路线种子节点）| extraction（文档自动提取）
+    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True)
 
     user_states = relationship("UserKnowledgeState", back_populates="node", cascade="all, delete-orphan")
     labs = relationship("Lab", back_populates="node")
+    document = relationship("Document")
 
 
 class KnowledgeRelation(Base):
