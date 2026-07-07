@@ -108,6 +108,7 @@ class SubmissionResponse(BaseModel):
 class GenerateExerciseRequest(BaseModel):
     """AI 动态生成针对性练习请求"""
     node_id: Optional[str] = None  # 不传则自动取推荐薄弱节点
+    subject: Optional[str] = None  # 科目选择（如 计算机网络 / 操作系统）
     exercise_type: str = "quiz"  # quiz / code
     difficulty: Optional[str] = "medium"  # easy / medium / hard
     api_key: Optional[str] = None
