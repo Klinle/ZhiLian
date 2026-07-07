@@ -221,15 +221,15 @@ export default function AdminLayout({ children, activePath }: AdminLayoutProps) 
           {/* Right Area (Controls) */}
           <div className="flex items-center gap-4">
             
-            {/* 返回聊天 */}
+            {/* 返回主脑 */}
             <Button
               variant="outline"
               size="sm"
-              onClick={() => router.push("/chat")}
+              onClick={() => router.push("/dashboard")}
               className="text-xs text-slate-600 dark:text-slate-300 border-slate-200 dark:border-[#2b2f4f] hover:bg-slate-50 dark:hover:bg-slate-800 h-9 rounded-lg"
             >
-              <MessageSquare className="h-3.5 w-3.5 mr-1.5" />
-              返回聊天
+              <LayoutDashboard className="h-3.5 w-3.5 mr-1.5" />
+              返回主脑
             </Button>
 
             {/* Profile Dropdown */}
@@ -256,7 +256,7 @@ export default function AdminLayout({ children, activePath }: AdminLayoutProps) 
                   <button
                     onClick={() => {
                       setShowProfileMenu(false);
-                      router.push("/chat");
+                      router.push("/dashboard");
                     }}
                     className="w-full text-left px-4 py-2 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50 flex items-center gap-2"
                   >
