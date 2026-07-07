@@ -58,6 +58,8 @@ export default function SkillTree({ nodes, relations, onNodeSelect }: SkillTreeP
     // 行间距与列间距
     const rowHeight = 130;
     const colWidth = 140;
+    // 左侧标签列宽（与 skill-tree.tsx 中定义的 LABEL_COL_WIDTH 保持一致）
+    const labelColWidth = 96;
 
     orderedCategories.forEach((cat, rIndex) => {
       // 排序：可以先按 weight 降序，然后如果有前置依赖的做拓扑修正，这里简单按照 node 里的 code 或 ID 来微调顺序保证一致性
@@ -65,8 +67,9 @@ export default function SkillTree({ nodes, relations, onNodeSelect }: SkillTreeP
       
       catNodes.forEach((node, cIndex) => {
         // 奇数行进行水平错落偏移，使得六边形更紧凑工整 (蜂巢式布局)
+        // left 基准向右偏移 labelColWidth，避免与左侧分类标签列重叠
         const offset = (rIndex % 2) * 70;
-        const left = cIndex * colWidth + offset + 20;
+        const left = cIndex * colWidth + offset + labelColWidth + 12;
         const top = rIndex * rowHeight + 40;
 
         nodeCoords.set(node.id, {
@@ -161,6 +164,9 @@ export default function SkillTree({ nodes, relations, onNodeSelect }: SkillTreeP
   }, [relations, nodeCoords, nodesById, isUnlockedMap]);
 
   // 计算树容器的总宽和总高，让滚动条合理自适应
+  // 左侧分类标签列宽（px），与节点内容区对齐
+  const LABEL_COL_WIDTH = 96;
+
   const { width, height } = useMemo(() => {
     let maxLeft = 800;
     let maxTop = 600;
@@ -168,23 +174,16 @@ export default function SkillTree({ nodes, relations, onNodeSelect }: SkillTreeP
       if (coord.left + 160 > maxLeft) maxLeft = coord.left + 160;
       if (coord.top + 160 > maxTop) maxTop = coord.top + 160;
     });
-    return { width: maxLeft, height: maxTop };
+    // 总宽加上左侧标签列宽度，避免节点被遮挡
+    return { width: maxLeft + LABEL_COL_WIDTH, height: maxTop };
   }, [nodeCoords]);
 
   return (
-    <div className="w-full h-full overflow-auto relative bg-slate-50/20 dark:bg-zinc-950/10 rounded-2xl border border-gray-200/80 dark:border-zinc-800 p-2 min-h-[500px]">
-      
-      {/* 分类行标题导览 (左侧贴边) */}
-      <div className="absolute left-4 top-0 bottom-0 pointer-events-none flex flex-col justify-between py-12 z-10 text-[10px] font-bold text-gray-400 dark:text-zinc-500 space-y-[100px]">
-        {CATEGORY_ORDER.map((cat) => (
-          <div key={cat} className="h-6 flex items-center bg-white/80 dark:bg-zinc-900/80 px-2 py-0.5 rounded-full border border-gray-100 dark:border-zinc-800 shadow-sm pointer-events-auto">
-            <span className="w-1.5 h-1.5 rounded-full mr-1.5" style={{ backgroundColor: CATEGORY_COLORS[cat] }} />
-            {CATEGORY_NAMES[cat]}
-          </div>
-        ))}
-      </div>
+    // 外层：仅负责滚动；内层：固定尺寸画布（分类标签 + SVG 连线 + 节点），随滚动整体移动
+    <div className="w-full h-full overflow-auto bg-slate-50/20 dark:bg-zinc-950/10 rounded-2xl border border-gray-200/80 dark:border-zinc-800 p-2 min-h-[500px]">
 
-      <div style={{ width, height, position: "relative" }} className="ml-24">
+      {/* 内容画布：宽高由节点坐标范围决定，小屏可横向滚动 */}
+      <div style={{ width: Math.max(width, 480), height, position: "relative" }}>
         {/* 连接关系 SVG 连线层 */}
         <svg
           width={width}
@@ -248,6 +247,25 @@ export default function SkillTree({ nodes, relations, onNodeSelect }: SkillTreeP
             );
           })}
         </svg>
+
+        {/* 分类行标题导览（内嵌在画布中，随横向滚动一同移动） */}
+        <div
+          style={{ width: LABEL_COL_WIDTH - 8, position: "absolute", left: 4, top: 40 }}
+          className="flex flex-col gap-0 z-20 pointer-events-none"
+        >
+          {CATEGORY_ORDER.map((cat, rIndex) => (
+            <div
+              key={cat}
+              style={{ height: 130, paddingTop: rIndex === 0 ? 0 : undefined }}
+              className="flex items-start"
+            >
+              <div className="h-6 flex items-center bg-white/80 dark:bg-zinc-900/80 px-2 py-0.5 rounded-full border border-gray-100 dark:border-zinc-800 shadow-sm pointer-events-auto text-[10px] font-bold text-gray-400 dark:text-zinc-500">
+                <span className="w-1.5 h-1.5 rounded-full mr-1.5 shrink-0" style={{ backgroundColor: CATEGORY_COLORS[cat] }} />
+                {CATEGORY_NAMES[cat]}
+              </div>
+            </div>
+          ))}
+        </div>
 
         {/* 技能节点绝对定位挂载 */}
         {nodes.map((node) => {
