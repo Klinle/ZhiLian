@@ -182,6 +182,7 @@ class Lab(Base):
     node_id = Column(UUID(as_uuid=True), ForeignKey("knowledge_nodes.id"), nullable=True)
     difficulty = Column(String(20), default="medium")  # easy, medium, hard
     lab_type = Column(String(20), default="code")  # code, quiz
+    detailed_explanation = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     node = relationship("KnowledgeNode", back_populates="labs")
@@ -203,3 +204,20 @@ class UserLabSubmission(Base):
 
     user = relationship("User", back_populates="submissions")
     lab = relationship("Lab", back_populates="submissions")
+
+
+class UserCollectionExercise(Base):
+    __tablename__ = "user_collection_exercises"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    node_id = Column(UUID(as_uuid=True), ForeignKey("knowledge_nodes.id", ondelete="SET NULL"), nullable=True)
+    title = Column(String(255), nullable=False)
+    exercise_type = Column(String(50), nullable=False)  # code, quiz, match, fill, arrange, judge
+    content = Column(JSON, nullable=False)
+    answer = Column(JSON, nullable=False)
+    explanation = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User")
+    node = relationship("KnowledgeNode")
