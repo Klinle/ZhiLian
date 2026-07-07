@@ -46,6 +46,7 @@ class LabCreateRequest(BaseModel):
     node_id: Optional[str] = None
     difficulty: Optional[str] = "medium"
     lab_type: Optional[str] = "code"
+    detailed_explanation: Optional[str] = None
 
 
 class LabUpdateRequest(BaseModel):
@@ -56,6 +57,7 @@ class LabUpdateRequest(BaseModel):
     node_id: Optional[str] = None
     difficulty: Optional[str] = None
     lab_type: Optional[str] = None
+    detailed_explanation: Optional[str] = None
 
 
 class AgentCreateRequest(BaseModel):
@@ -341,6 +343,7 @@ async def admin_create_lab(
         node_id=node_id,
         difficulty=request.difficulty or "medium",
         lab_type=request.lab_type or "code",
+        detailed_explanation=request.detailed_explanation,
     )
     session.add(lab)
     await session.commit()
@@ -376,6 +379,8 @@ async def admin_update_lab(
         lab.difficulty = request.difficulty
     if request.lab_type is not None:
         lab.lab_type = request.lab_type
+    if request.detailed_explanation is not None:
+        lab.detailed_explanation = request.detailed_explanation
     if request.node_id is not None:
         try:
             lab.node_id = UUID(request.node_id) if request.node_id else None
