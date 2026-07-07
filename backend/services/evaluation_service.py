@@ -217,22 +217,39 @@ class EvaluationService:
         api_key: Optional[str] = None,
         model: Optional[str] = None,
         base_url: Optional[str] = None,
+        learning_state: str = "unlearned",  # 三态: unlearned(未学习) / weak(薄弱) / mastered(已掌握)
+        profile_context: str = "",  # 用户画像上下文（由调用方高级聚合后传入）
+        knowledge_context: str = "",  # 知识库文档上下文（由调用方从 DocumentChunk 检索后传入）
     ) -> dict:
         """基于薄弱知识点用 LLM 动态生成针对性练习
 
         生成的练习结构与 Lab 兼容（title/description/starter_code/test_cases/lab_type/detailed_explanation），
         前端可直接复用 practice 页渲染逻辑。difficulty 与学员掌握度自适应。
+        learning_state 驱动三态出题策略，profile_context 注入用户整体学习画像，
+        knowledge_context 注入知识库文档参考材料。
 
         返回: {title, description, starter_code, test_cases, detailed_explanation, difficulty, lab_type} 或 {error}
         """
-        # 学员状态描述，引导 LLM 调整难度
-        if not is_lighted:
-            mastery_desc = "尚未点亮该知识点（建议从入门概念切入）"
+        # 三态描述，引导 LLM 调整出题策略
+        if learning_state == "mastered":
+            mastery_desc = f"已掌握（proficiency {proficiency * 100:.0f}%），建议拔高难度出综合应用题"
+        elif learning_state == "weak":
+            mastery_desc = f"薄弱（proficiency 仅 {proficiency * 100:.0f}%），建议针对常见误区出题，解析重点讲易错点"
         else:
-            mastery_desc = f"已点亮但掌握度仅 {proficiency * 100:.0f}%（建议针对薄弱环节巩固）"
+            mastery_desc = "未学习（从未接触过该知识点），建议从最基础概念切入，难度自动降低，解析加倍详细"
+
+        # 用户画像上下文（可选，由调用方聚合后传入）
+        profile_section = ""
+        if profile_context:
+            profile_section = f"\n## 学员学习画像\n{profile_context}\n"
+
+        # 知识库文档上下文（可选，由调用方从 DocumentChunk 检索后传入）
+        knowledge_section = ""
+        if knowledge_context:
+            knowledge_section = f"\n## 知识库参考材料\n{knowledge_context}\n"
 
         if exercise_type == "quiz":
-            system_prompt = "你是计算机基础教育专家，擅长针对学员薄弱点设计高质量选择题。请严格按 JSON 格式输出，不要包含其他文本。"
+            system_prompt = "你是 Python 游戏与工具开发教学专家，擅长针对学员薄弱点设计高质量的 Python 选择题。请严格按 JSON 格式输出，不要包含其他文本。"
             user_prompt = f"""请针对以下知识点生成 3 道选择题，帮助学员巩固薄弱知识。
 
 ## 知识点信息
@@ -241,19 +258,19 @@ class EvaluationService:
 - 描述: {node_description}
 - 学员当前状态: {mastery_desc}
 - 目标难度: {difficulty}
-
+{profile_section}{knowledge_section}
 ## 生成要求
-1. 题目必须紧扣该知识点的核心概念和常见误区
-2. 每题 4 个选项（仅 1 个正确答案），干扰项要有迷惑性
-3. 每题附详细解析，说明正确答案为何正确、其他选项为何错误
-4. 包含全局 detailed_explanation（详细总解析），大白话通俗易懂，用生活故事类比说明这道题目涉及的概念
+1. 题目必须聚焦在 Python 语法细节、语言陷阱（如可变对象默认参数、深浅拷贝、LEGB作用域、内置函数）及在编写小游戏/小工具时常踩的坑上。
+2. 每题 4 个选项（仅 1 个正确答案），干扰项要有迷惑性，并且选项要体现代码调试或逻辑判定。
+3. 每题附详细解析，说明正确答案为何正确、其他选项为何错误。
+4. 包含全局 detailed_explanation（详细总解析），以通俗易懂的语言，用游戏开发场景或生活类比说明这些题目涉及的核心概念。
 
 ## 输出格式（严格 JSON）
 ```json
 {{
     "title": "练习标题",
     "description": "一句话简介",
-    "detailed_explanation": "关于该题涉及知识点的通俗化一句话口诀和生活类比总解析",
+    "detailed_explanation": "关于该题涉及知识点的通俗化一句话口诀和游戏场景类比总解析",
     "test_cases": {{
         "questions": [
             {{
@@ -268,8 +285,8 @@ class EvaluationService:
 }}
 ```"""
         elif exercise_type == "match":
-            system_prompt = "你是计算机基础教育专家，擅长设计好玩的概念与生活类比连线匹配题。请严格按 JSON 格式输出，不要包含其他文本。"
-            user_prompt = f"""请针对以下知识点生成一道连线匹配题，帮学员通过生活类比快速掌握概念。
+            system_prompt = "你是 Python 游戏开发教学专家，擅长设计好玩的概念与生活/游戏场景连线匹配题。请严格按 JSON 格式输出，不要包含其他文本。"
+            user_prompt = f"""请针对以下知识点生成一道连线匹配题，帮学员通过生活/游戏开发类比快速掌握概念。
 
 ## 知识点信息
 - 名称: {node_name}
@@ -277,18 +294,18 @@ class EvaluationService:
 - 描述: {node_description}
 - 学员当前状态: {mastery_desc}
 - 目标难度: {difficulty}
-
+{profile_section}{knowledge_section}
 ## 生成要求
-1. 设计 4 个左侧网络/算法概念术语（如：IP地址、TCP三次握手），与 4 个右侧最贴切的生活故事类比（如：家庭住址、确认眼神签收挂号信）。
+1. 设计 4 个左侧 Python 语言核心概念（如：Dunder魔法方法、GIL全局锁、装饰器、slots属性），与 4 个右侧最贴切的游戏组件/生活道具类比（如：药水融合印记、单行道交通规则、技能 CD 附魔挂件、内存空间瘦身衣）。
 2. 提供 `pairs` 对象指出它们之间逻辑上的正确连接映射关系。
-3. 包含 `detailed_explanation` 字段，以生动的故事对这 4 个连线进行大白话原理解释。
+3. 包含 `detailed_explanation` 字段，以生动的游戏开发小故事对这 4 个连线进行大白话原理解释。
 
 ## 输出格式（严格 JSON）
 ```json
 {{
     "title": "连线匹配练习标题",
-    "description": "连线匹配：请将概念与其最贴切的生活类比匹配起来。",
-    "detailed_explanation": "总解析：例如 TCP 像挂号信...",
+    "description": "连线匹配：请将 Python 语言概念与其最贴切的游戏/生活类比匹配起来。",
+    "detailed_explanation": "总解析：例如 GIL 全局锁像单车道限制...",
     "test_cases": {{
         "left": ["概念1", "概念2", "概念3", "概念4"],
         "right": ["类比1", "类比2", "类比3", "类比4"],
@@ -302,17 +319,6 @@ class EvaluationService:
 }}
 ```"""
         elif exercise_type == "arrange":
-            system_prompt = "你是计算机基础教育专家，擅长设计步骤逻辑排序题。请严格按 JSON 格式输出，不要包含其他文本。"
-            user_prompt = f"""请针对以下知识点生成一道步骤排序题，帮助学员加深算法或通信顺序流程的物理理解。
-
-## 知识点信息
-- 名称: {node_name}
-- 领域: {node_category}
-- 描述: {node_description}
-- 学员当前状态: {mastery_desc}
-- 目标难度: {difficulty}
-
-## 生成要求
 1. 提供 4 到 5 个逻辑步骤（如：三次握手的顺序，或冒泡排序内层循环的执行顺序）。
 2. steps 字段是打乱顺序后的步骤列表。
 3. correct_order 字段提供正确的排序索引序列（对应打乱后的 steps 下标，比如 [1, 0, 2, 3]）。
