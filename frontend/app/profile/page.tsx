@@ -18,8 +18,13 @@ import {
   CheckCircle2,
   Calendar,
   Loader2,
+  ChevronDown,
+  ChevronUp,
+  Check,
+  Lock,
 } from "lucide-react";
-import { profileApi } from "@/lib/api";
+import { profileApi, knowledgeApi } from "@/lib/api";
+import { KnowledgeNode } from "@/types";
 import UserLayout from "@/components/user-layout";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
@@ -50,8 +55,19 @@ export default function ProfilePage() {
   const [mounted, setMounted] = useState(false);
   const [stats, setStats] = useState<ProfileStats | null>(null);
   const [radar, setRadar] = useState<RadarData | null>(null);
+  const [nodes, setNodes] = useState<KnowledgeNode[]>([]);
+  const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [userRole, setUserRole] = useState<string>("");
+
+  const categoryMapping: Record<string, { label: string, color: string }> = {
+    "programming": { label: "程序设计基础", color: "bg-blue-500" },
+    "dsa": { label: "数据结构与算法", color: "bg-emerald-500" },
+    "organization": { label: "计算机组成原理", color: "bg-amber-500" },
+    "os": { label: "操作系统", color: "bg-purple-500" },
+    "network": { label: "计算机网络", color: "bg-cyan-500" },
+    "database": { label: "数据库系统", color: "bg-rose-500" }
+  };
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -67,12 +83,14 @@ export default function ProfilePage() {
   const fetchProfileData = useCallback(async () => {
     try {
       setLoading(true);
-      const [statsData, radarData] = await Promise.all([
+      const [statsData, radarData, graphData] = await Promise.all([
         profileApi.getStats(),
         profileApi.getRadar(),
+        knowledgeApi.getGraph(),
       ]);
       setStats(statsData);
       setRadar(radarData);
+      setNodes(graphData.nodes || []);
     } catch (error) {
       console.error("Failed to fetch profile data:", error);
     } finally {
@@ -106,7 +124,7 @@ export default function ProfilePage() {
             max: ind.max,
           })),
           shape: "polygon" as const,
-          radius: "68%",
+          radius: "60%",
           axisName: {
             color: "#94a3b8",
             fontSize: 10,
@@ -277,7 +295,7 @@ export default function ProfilePage() {
               <div className="lg:col-span-3 bg-slate-50 dark:bg-[#121424] border border-slate-100 dark:border-[#1f233a] rounded-2xl p-5 h-[340px] flex flex-col overflow-y-auto">
                 <h3 className="text-xs font-bold text-slate-400 border-b border-slate-200 dark:border-slate-800 pb-2 mb-4 flex items-center gap-2">
                   <Calendar className="h-4 w-4 text-purple-500" />
-                  三方向学习详情
+                  六大核心领域进度
                 </h3>
                 <div className="flex-1 space-y-4">
                   {radar?.values.map((v) => (
@@ -305,6 +323,121 @@ export default function ProfilePage() {
                     </div>
                   )}
                 </div>
+              </div>
+
+            </div>
+
+            {/* Detailed Nodes Section */}
+            <div className="bg-slate-50 dark:bg-[#121424] border border-slate-100 dark:border-[#1f233a] rounded-2xl p-6 flex flex-col gap-4">
+              <div className="border-b border-slate-200 dark:border-slate-800 pb-3 mb-2">
+                <h3 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                  <Network className="h-4 w-4 text-indigo-500" />
+                  六大核心领域细分知识点图谱
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">查看每个具体知识节点的点亮状态与掌握进度详情</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {Object.entries(categoryMapping).map(([catKey, catInfo]) => {
+                  const catNodes = nodes.filter((n) => n.category === catKey);
+                  const lightedCount = catNodes.filter((n) => n.is_lighted).length;
+                  const isExpanded = expandedCategory === catKey;
+
+                  return (
+                    <div
+                      key={catKey}
+                      className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-[#1f233a] rounded-xl overflow-hidden transition-all duration-300 shadow-sm"
+                    >
+                      {/* Category Header */}
+                      <button
+                        onClick={() => setExpandedCategory(isExpanded ? null : catKey)}
+                        className="w-full px-5 py-4 flex items-center justify-between hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors text-left"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className={`w-2.5 h-2.5 rounded-full ${catInfo.color}`} />
+                          <div>
+                            <h4 className="text-sm font-bold text-slate-700 dark:text-slate-200">
+                              {catInfo.label}
+                            </h4>
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              已点亮 {lightedCount} / {catNodes.length} 节点
+                            </span>
+                          </div>
+                        </div>
+                        {isExpanded ? (
+                          <ChevronUp className="h-4 w-4 text-slate-400" />
+                        ) : (
+                          <ChevronDown className="h-4 w-4 text-slate-400" />
+                        )}
+                      </button>
+
+                      {/* Category Details */}
+                      {isExpanded && (
+                        <div className="border-t border-slate-100 dark:border-slate-800/60 p-4 bg-slate-50/40 dark:bg-slate-950/10 space-y-2 max-h-80 overflow-y-auto">
+                          {catNodes.length === 0 ? (
+                            <p className="text-xs text-slate-400 text-center py-4">该分类下暂无知识节点</p>
+                          ) : (
+                            catNodes.map((node) => (
+                              <div
+                                key={node.id}
+                                className={`p-3 rounded-lg border transition-all ${
+                                  node.is_lighted
+                                    ? "bg-white dark:bg-slate-900/60 border-slate-100 dark:border-slate-800"
+                                    : "bg-slate-50/50 dark:bg-slate-900/20 border-dashed border-slate-200 dark:border-slate-800/40 opacity-70"
+                                }`}
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="flex items-start gap-2.5 min-w-0">
+                                    <div className="mt-0.5 shrink-0">
+                                      {node.is_lighted ? (
+                                        <div className="p-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 text-emerald-500 border border-emerald-100 dark:border-emerald-900/40">
+                                          <Check className="h-3 w-3" />
+                                        </div>
+                                      ) : (
+                                        <div className="p-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 border border-slate-200/50 dark:border-slate-700/40">
+                                          <Lock className="h-3 w-3" />
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div className="min-w-0">
+                                      <h5 className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                                        {node.name}
+                                        <span className="text-[9px] font-mono font-medium px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500">
+                                          {node.code}
+                                        </span>
+                                      </h5>
+                                      <p className="text-[10px] text-slate-400 mt-1 leading-normal line-clamp-2">
+                                        {node.description}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div className="text-right shrink-0">
+                                    <span className="text-xs font-bold font-mono text-indigo-650 dark:text-indigo-400">
+                                      熟练度 {node.proficiency}%
+                                    </span>
+                                    <span className="text-[9px] text-slate-400 block mt-0.5">
+                                      时长 {Math.round(node.study_duration / 60)} 分钟
+                                    </span>
+                                  </div>
+                                </div>
+                                
+                                {/* Inner Proficiency Bar */}
+                                {node.is_lighted && (
+                                  <div className="mt-2.5 bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                                    <div
+                                      className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-300 rounded-full"
+                                      style={{ width: `${node.proficiency}%` }}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
 
             </div>
