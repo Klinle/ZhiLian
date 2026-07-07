@@ -3,10 +3,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, update
-from typing import Optional
+from typing import Optional, List
 from uuid import UUID
 from pydantic import BaseModel
 from datetime import datetime
+import asyncio
 
 from core.database import get_session
 from core.dependencies import get_admin_user, get_teacher_or_admin_user
@@ -22,6 +23,7 @@ from models.database import (
     Memory,
 )
 from services.profile_service import profile_service
+from services.evaluation_service import evaluation_service
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -47,6 +49,20 @@ class LabCreateRequest(BaseModel):
     difficulty: Optional[str] = "medium"
     lab_type: Optional[str] = "code"
     detailed_explanation: Optional[str] = None
+
+
+class LabBatchGenerateRequest(BaseModel):
+    node_id: str
+    exercise_type: str
+    difficulty: Optional[str] = "medium"
+    count: Optional[int] = 3
+    api_key: Optional[str] = None
+    model: Optional[str] = None
+    base_url: Optional[str] = None
+
+
+class LabBatchSaveRequest(BaseModel):
+    labs: List[LabCreateRequest]
 
 
 class LabUpdateRequest(BaseModel):
@@ -484,3 +500,95 @@ async def admin_update_agent(
 
     await session.commit()
     return {"id": str(agent.id), "name": agent.name}
+
+
+@router.post("/labs/generate-batch")
+async def admin_generate_batch_labs(
+    request: LabBatchGenerateRequest,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_admin_user),
+):
+    """AI 并发批量出题"""
+    try:
+        node_uuid = UUID(request.node_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid node_id")
+
+    node = await session.get(KnowledgeNode, node_uuid)
+    if not node:
+        raise HTTPException(404, "Knowledge node not found")
+
+    tasks = []
+    for _ in range(request.count or 3):
+        tasks.append(
+            evaluation_service.generate_targeted_exercise(
+                node_name=node.name,
+                node_description=node.description or "",
+                node_category=node.category or "",
+                proficiency=0.5,
+                is_lighted=False,
+                exercise_type=request.exercise_type,
+                difficulty=request.difficulty or "medium",
+                api_key=request.api_key,
+                model=request.model,
+                base_url=request.base_url,
+            )
+        )
+
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    generated_labs = []
+    for res in results:
+        if isinstance(res, Exception):
+            print(f"[Batch Generate Warning] Task failed: {res}")
+            continue
+        if "error" in res:
+            print(f"[Batch Generate Warning] LLM returned error: {res['error']}")
+            continue
+
+        generated_labs.append({
+            "title": res.get("title", f"{node.name} · 自适应练习"),
+            "description": res.get("description", ""),
+            "starter_code": res.get("starter_code", ""),
+            "test_cases": res.get("test_cases", {}),
+            "difficulty": res.get("difficulty", request.difficulty or "medium"),
+            "lab_type": res.get("lab_type", request.exercise_type),
+            "detailed_explanation": res.get("detailed_explanation") or res.get("explanation", ""),
+            "node_id": request.node_id,
+        })
+
+    return {"labs": generated_labs}
+
+
+@router.post("/labs/batch-save")
+async def admin_batch_save_labs(
+    request: LabBatchSaveRequest,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_admin_user),
+):
+    """批量导入 Lab"""
+    created_labs = []
+    for item in request.labs:
+        node_id = None
+        if item.node_id:
+            try:
+                node_id = UUID(item.node_id)
+            except ValueError:
+                pass
+
+        lab = Lab(
+            title=item.title,
+            description=item.description,
+            starter_code=item.starter_code,
+            test_cases=item.test_cases,
+            node_id=node_id,
+            difficulty=item.difficulty or "medium",
+            lab_type=item.lab_type or "code",
+            detailed_explanation=item.detailed_explanation,
+        )
+        session.add(lab)
+        created_labs.append(lab)
+
+    await session.commit()
+    return {"count": len(created_labs), "labs": [{"id": str(l.id), "title": l.title} for l in created_labs]}
+
