@@ -55,6 +55,7 @@ function PracticeContent() {
   const [dynamicType, setDynamicType] = useState<string>("quiz");
   const [dynamicDifficulty, setDynamicDifficulty] = useState<string>("medium");
   const [dynamicLoading, setDynamicLoading] = useState(false);
+  const [selectedSubject, setSelectedSubject] = useState<string>("all");
 
   // 收藏状态
   const [isCollected, setIsCollected] = useState(false);
@@ -250,6 +251,7 @@ function PracticeContent() {
         exercise_type: dynamicType,
         difficulty: dynamicDifficulty,
         node_id: nodeId || undefined,
+        subject: selectedSubject !== "all" ? selectedSubject : undefined,
         api_key: apiKey,
         model: model,
         base_url: baseUrl
@@ -503,6 +505,24 @@ function PracticeContent() {
                     <option value="arrange">步骤/流程逻辑排序题 (Arrange)</option>
                     <option value="fill">概念关键字填空题 (Fill)</option>
                     <option value="code">代码实操编程题 (Code)</option>
+                  </select>
+                </div>
+
+                {/* 科目选择 */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-400">选择出题科目</label>
+                  <select
+                    value={selectedSubject}
+                    onChange={(e) => setSelectedSubject(e.target.value)}
+                    className="w-full text-xs px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="all">智能推荐 (全部)</option>
+                    <option value="程序设计基础">程序设计基础</option>
+                    <option value="数据结构与算法">数据结构与算法</option>
+                    <option value="计算机组成原理">计算机组成原理</option>
+                    <option value="操作系统">操作系统</option>
+                    <option value="计算机网络">计算机网络</option>
+                    <option value="数据库系统">数据库系统</option>
                   </select>
                 </div>
 

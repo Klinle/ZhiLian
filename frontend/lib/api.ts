@@ -114,6 +114,42 @@ export const labApi = {
     if (!response.ok) throw new Error("获取提交历史失败");
     return response.json();
   },
+  generateLab: async (params: {
+    exercise_type: string;
+    difficulty?: string;
+    node_id?: string;
+    subject?: string;
+    api_key?: string;
+    model?: string;
+    base_url?: string;
+  }) => {
+    // AI 动态生成针对性练习（不传 node_id 时后端自动取薄弱节点）
+    const response = await fetch(`${API_BASE_URL}/api/labs/generate`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(params),
+    });
+    if (!response.ok) throw new Error("生成针对性练习失败");
+    return response.json();
+  },
+  evaluateDynamic: async (params: {
+    exercise: Record<string, unknown>;
+    code?: string;
+    answers?: Record<string, number>;
+    node_id?: string;
+    api_key?: string;
+    model?: string;
+    base_url?: string;
+  }) => {
+    // 动态生成练习的即时评测（不创建 submission 记录，但联动知识图谱）
+    const response = await fetch(`${API_BASE_URL}/api/labs/evaluate-dynamic`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(params),
+    });
+    if (!response.ok) throw new Error("即时评测失败");
+    return response.json();
+  },
 };
 
 export const adminApi = {
@@ -271,6 +307,21 @@ export const knowledgeApi = {
     if (!response.ok) throw new Error("获取节点实验失败");
     return response.json();
   },
+  computePageRank: async () => {
+    const response = await fetch(`${API_BASE_URL}/api/knowledge/pagerank`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) throw new Error("计算 PageRank 失败");
+    return response.json();
+  },
+  recommendLearningPath: async () => {
+    const response = await fetch(`${API_BASE_URL}/api/knowledge/recommend`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) throw new Error("获取学习路径推荐失败");
+    return response.json();
+  },
 };
 
 export const authApi = {
@@ -308,4 +359,45 @@ export const authApi = {
     }
     return response.json();
   }
+};
+
+export const collectionApi = {
+  listCollections: async () => {
+    const response = await fetch(`${API_BASE_URL}/api/collections`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) throw new Error("获取收藏列表失败");
+    return response.json();
+  },
+  collectExercise: async (data: {
+    node_id?: string;
+    title: string;
+    exercise_type: string;
+    content: any;
+    answer: any;
+    explanation?: string;
+  }) => {
+    const response = await fetch(`${API_BASE_URL}/api/collections`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error("收藏题目失败");
+    return response.json();
+  },
+  deleteCollection: async (collectionId: string) => {
+    const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}`, {
+      method: "DELETE",
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) throw new Error("取消收藏失败");
+    return response.json();
+  },
+  checkIsCollected: async (title: string) => {
+    const response = await fetch(`${API_BASE_URL}/api/collections/check?title=${encodeURIComponent(title)}`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) throw new Error("校验收藏状态失败");
+    return response.json();
+  },
 };
