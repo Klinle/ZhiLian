@@ -182,7 +182,7 @@ export default function StudyPanel({
   const question = quiz?.test_cases?.questions?.[0] || quiz?.questions?.[0] || quiz;
 
   return (
-    <div className="w-80 shrink-0 flex flex-col gap-5 overflow-y-auto pr-1">
+    <div className="flex flex-col gap-5 min-w-0">
       {/* 模块一：今日推荐学习路径 */}
       <div className="bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm">
         <h3 className="text-xs font-bold text-gray-800 dark:text-zinc-200 mb-3 flex items-center gap-1.5">
