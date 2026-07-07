@@ -32,10 +32,10 @@ import {
   Activity,
   Network,
   Award,
-  LogOut,
   Wrench,
   Bot
 } from "lucide-react";
+import UserLayout from "@/components/user-layout";
 import {
   Select,
   SelectContent,
@@ -492,126 +492,71 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="flex h-screen bg-background">
-      {/* Sidebar */}
-      <aside
+    <UserLayout activePath="/chat">
+      {/* 次级侧栏：会话与功能管理 */}
+      <div
         className={`${
-          sidebarOpen ? "w-72" : "w-0"
-        } bg-[#f9f9f9] dark:bg-[#0d0d0d] border-r border-gray-200 dark:border-gray-800 transition-all duration-300 overflow-hidden flex flex-col`}
+          sidebarOpen ? "w-72 border-r" : "w-0"
+        } bg-slate-50/50 dark:bg-slate-950/20 border-gray-200 dark:border-gray-800 transition-all duration-300 overflow-hidden flex flex-col shrink-0`}
       >
-        {/* New Chat Button */}
+        {/* 新建聊天按钮 */}
         <div className="p-4">
           <button
             onClick={createNewConversation}
-            className="flex items-center gap-3 w-full px-4 py-3 rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700 hover:shadow-sm transition-all text-sm font-medium text-gray-700 dark:text-gray-200"
+            className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/40 hover:bg-indigo-650 hover:text-white transition-all text-xs font-semibold text-indigo-650 dark:text-indigo-400"
           >
-            <Plus className="h-4 w-4 text-gray-500" />
+            <Plus className="h-4 w-4 shrink-0" />
             新建聊天
           </button>
         </div>
 
-        {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto px-3">
-          {/* Search */}
-          <div className="px-1 py-1">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
-                type="text"
-                placeholder="搜索对话..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    handleSearchConversations();
-                  }
-                }}
-                className="w-full pl-9 pr-8 py-2 rounded-lg text-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-200 placeholder:text-gray-400 focus:outline-none focus:border-gray-300 dark:focus:border-gray-700"
-              />
-              {searchQuery && (
-                <button
-                  onClick={clearSearch}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
-                >
-                  <X className="h-3 w-3 text-gray-400" />
-                </button>
-              )}
-            </div>
-            {isSearching && (
-              <p className="text-xs text-gray-400 mt-1 px-3">搜索中...</p>
-            )}
-          </div>
-
-          {/* Features */}
-          <div className="mt-1 space-y-0.5">
-            <Link
-              href="/knowledge"
-              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
-            >
-              <BookOpen className="h-4 w-4" />
-              知识库
-            </Link>
-            <Link
-              href="/memories"
-              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
-            >
-              <Brain className="h-4 w-4" />
-              记忆
-            </Link>
-            <Link
-              href="/profile"
-              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
-            >
-              <Activity className="h-4 w-4" />
-              学习画像
-            </Link>
-            <Link
-              href="/graph"
-              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
-            >
-              <Network className="h-4 w-4" />
-              知识图谱
-            </Link>
-            <Link
-              href="/practice"
-              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
-            >
-              <Award className="h-4 w-4" />
-              在线练习
-            </Link>
-            <Link
-              href="/chat"
-              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-all cursor-pointer"
-            >
-              <Grid3X3 className="h-4 w-4" />
-              首页
-            </Link>
-            {(userRole === "admin" || userRole === "teacher") && (
-              <Link
-                href="/admin"
-                className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-all cursor-pointer font-medium"
+        {/* 搜索与设置 */}
+        <div className="px-4 pb-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="搜索对话..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  handleSearchConversations();
+                }
+              }}
+              className="w-full pl-9 pr-8 py-2 rounded-lg text-xs bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-200 placeholder:text-gray-400 focus:outline-none focus:border-gray-300 dark:focus:border-gray-700"
+            />
+            {searchQuery && (
+              <button
+                onClick={clearSearch}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
               >
-                <Shield className="h-4 w-4" />
-                管理后台
-              </Link>
+                <X className="h-3 w-3 text-gray-400" />
+              </button>
             )}
           </div>
+          {isSearching && (
+            <p className="text-xs text-gray-400 mt-1 px-3">搜索中...</p>
+          )}
+        </div>
 
-          {/* Toggle Features */}
-          <div className="mt-6 px-1">
-            <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2 px-3">
+        {/* 功能开关与最近会话列表 */}
+        <div className="flex-1 overflow-y-auto px-3 space-y-4">
+          {/* 功能开关 */}
+          <div>
+            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2 px-3">
               功能开关
             </p>
             <div className="space-y-0.5">
               <button
                 onClick={() => setUseRAG(!useRAG)}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all cursor-pointer w-full ${
+                className={`flex items-center gap-3 px-3 py-2 rounded-lg text-xs transition-all cursor-pointer w-full ${
                   useRAG
-                    ? "bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400"
+                    ? "bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 font-medium"
                     : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
                 }`}
               >
-                <BookOpen className="h-4 w-4" />
+                <BookOpen className="h-3.5 w-3.5" />
                 <span className="flex-1 text-left">知识库 RAG</span>
                 {useRAG && (
                   <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
@@ -619,13 +564,13 @@ export default function ChatPage() {
               </button>
               <button
                 onClick={() => setUseMemory(!useMemory)}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all cursor-pointer w-full ${
+                className={`flex items-center gap-3 px-3 py-2 rounded-lg text-xs transition-all cursor-pointer w-full ${
                   useMemory
-                    ? "bg-purple-50 dark:bg-purple-950/30 text-purple-600 dark:text-purple-400"
+                    ? "bg-purple-50 dark:bg-purple-950/30 text-purple-600 dark:text-purple-400 font-medium"
                     : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
                 }`}
               >
-                <Brain className="h-4 w-4" />
+                <Brain className="h-3.5 w-3.5" />
                 <span className="flex-1 text-left">长期记忆</span>
                 {useMemory && (
                   <span className="w-1.5 h-1.5 rounded-full bg-purple-500" />
@@ -633,13 +578,13 @@ export default function ChatPage() {
               </button>
               <button
                 onClick={() => setUseTools(!useTools)}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all cursor-pointer w-full ${
+                className={`flex items-center gap-3 px-3 py-2 rounded-lg text-xs transition-all cursor-pointer w-full ${
                   useTools
-                    ? "bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400"
+                    ? "bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 font-medium"
                     : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
                 }`}
               >
-                <Wrench className="h-4 w-4" />
+                <Wrench className="h-3.5 w-3.5" />
                 <span className="flex-1 text-left">工具调用</span>
                 {useTools && (
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
@@ -647,13 +592,13 @@ export default function ChatPage() {
               </button>
               <button
                 onClick={() => setUseMultiAgent(!useMultiAgent)}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all cursor-pointer w-full ${
+                className={`flex items-center gap-3 px-3 py-2 rounded-lg text-xs transition-all cursor-pointer w-full ${
                   useMultiAgent
-                    ? "bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400"
+                    ? "bg-indigo-50 dark:bg-indigo-950/30 text-indigo-650 dark:text-indigo-400 font-medium"
                     : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
                 }`}
               >
-                <Bot className="h-4 w-4" />
+                <Bot className="h-3.5 w-3.5" />
                 <span className="flex-1 text-left">多Agent协同</span>
                 {useMultiAgent && (
                   <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
@@ -662,16 +607,16 @@ export default function ChatPage() {
             </div>
           </div>
 
-          {/* Recent Chats */}
-          <div className="mt-6 px-1">
-            <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2 px-3">
+          {/* 最近会话 */}
+          <div>
+            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2 px-3">
               {searchQuery
                 ? `搜索结果 (${filteredConversations.length})`
                 : `最近对话 (${conversations.length})`}
             </p>
-            <div className="space-y-0.5 max-h-[280px] overflow-y-auto">
+            <div className="space-y-0.5 max-h-[350px] overflow-y-auto">
               {filteredConversations.length === 0 && searchQuery ? (
-                <p className="text-sm text-gray-400 px-3 py-2">
+                <p className="text-xs text-gray-400 px-3 py-2">
                   未找到匹配对话
                 </p>
               ) : (
@@ -679,20 +624,19 @@ export default function ChatPage() {
                   <button
                     key={chat.id}
                     onClick={() => loadConversation(chat.id)}
-                    className={`flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm transition-all cursor-pointer w-full text-left group ${
+                    className={`flex items-start gap-2.5 px-3 py-2 rounded-lg text-xs transition-all cursor-pointer w-full text-left group ${
                       currentConversationId === chat.id
-                        ? "bg-white dark:bg-gray-800 shadow-sm border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-gray-100"
+                        ? "bg-white dark:bg-gray-800 shadow-sm border border-gray-200/80 dark:border-gray-700 text-gray-900 dark:text-gray-100"
                         : "text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-gray-800/50"
                     }`}
                   >
-                    <MessageSquare className="h-4 w-4 shrink-0 mt-0.5 text-gray-400" />
+                    <MessageSquare className="h-3.5 w-3.5 shrink-0 mt-0.5 text-gray-400" />
                     <div className="flex-1 min-w-0">
-                      <span className="truncate block font-medium">
+                      <span className="truncate block font-semibold leading-tight">
                         {chat.title}
                       </span>
-                      <span className="text-xs text-gray-400">
-                        {formatDate(chat.updated_at)} · {chat.message_count}{" "}
-                        条消息
+                      <span className="text-[10px] text-gray-400 block mt-0.5">
+                        {formatDate(chat.updated_at)} · {chat.message_count} 条消息
                       </span>
                     </div>
                   </button>
@@ -700,53 +644,11 @@ export default function ChatPage() {
               )}
             </div>
           </div>
-        </nav>
-
-        {/* User Session Footer */}
-        <div className="p-4 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between gap-3 text-xs bg-gray-50/50 dark:bg-slate-950/20">
-          <div className="flex items-center gap-2 truncate">
-            <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-xs shrink-0">
-              U
-            </div>
-            <div className="truncate text-gray-700 dark:text-gray-300">
-              <span className="font-semibold block truncate leading-tight">
-                {typeof window !== "undefined" ? localStorage.getItem("cognilink_user_nickname") || "未登录" : "加载中"}
-              </span>
-              <span className="text-[10px] text-gray-400 block mt-0.5 capitalize">
-                {typeof window !== "undefined" ? localStorage.getItem("cognilink_user_role") || "student" : "student"}
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
-            <Link
-              href="/settings"
-              className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 rounded-lg transition-colors"
-              title="设置"
-            >
-              <Settings className="h-4 w-4" />
-            </Link>
-            <button
-              onClick={() => {
-                if (confirm("确认退出登录？")) {
-                  localStorage.removeItem("cognilink_token");
-                  localStorage.removeItem("cognilink_user_id");
-                  localStorage.removeItem("cognilink_user_role");
-                  localStorage.removeItem("cognilink_user_nickname");
-                  document.cookie = "cognilink_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-                  router.push("/login");
-                }
-              }}
-              className="p-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-500 rounded-lg transition-colors"
-              title="退出登录"
-            >
-              <LogOut className="h-4 w-4" />
-            </button>
-          </div>
         </div>
-      </aside>
+      </div>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col min-w-0 bg-white dark:bg-[#0d0d0d]">
+      <div className="flex-1 flex flex-col min-w-0 bg-white dark:bg-[#0d0d0d]">
         {/* Header */}
         <header className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2">
@@ -1098,7 +1000,7 @@ export default function ChatPage() {
             </p>
           </div>
         </div>
-      </main>
-    </div>
+      </div>
+    </UserLayout>
   );
 }
