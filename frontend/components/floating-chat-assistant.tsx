@@ -28,8 +28,10 @@ export default function FloatingChatAssistant() {
     isOpen,
     contextNodeId,
     contextNodeName,
+    triggerMessage,
     closeAssistant,
-    clearContext
+    clearContext,
+    setTriggerMessage
   } = useChatAssistantStore();
 
   const {
@@ -79,6 +81,14 @@ export default function FloatingChatAssistant() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, workflowSteps]);
+
+  // 监听并执行答题界面的 AI 联动讲解消息
+  useEffect(() => {
+    if (isOpen && triggerMessage) {
+      handleSend(triggerMessage);
+      setTriggerMessage(null);
+    }
+  }, [isOpen, triggerMessage]);
 
   // 感知上下文节点并自动注入欢迎消息
   useEffect(() => {
