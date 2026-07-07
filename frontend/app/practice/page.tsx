@@ -351,7 +351,7 @@ function PracticeContent() {
       <div className="flex-1 overflow-y-auto bg-white dark:bg-[#0c0f1d] flex flex-col">
         
         {/* Header with Modes */}
-        <div className="p-8 pb-4 shrink-0 border-b border-slate-100 dark:border-slate-800">
+        <div className="p-4 md:p-8 pb-4 shrink-0 border-b border-slate-100 dark:border-slate-800">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">在线练习</h1>
@@ -398,10 +398,10 @@ function PracticeContent() {
         </div>
 
         {/* Workspace */}
-        <div className="flex-1 flex min-h-0 p-8 gap-6">
+        <div className="flex-1 flex flex-col md:flex-row min-h-0 p-4 md:p-8 gap-6">
 
           {/* Left Panel (Interactive dynamic config OR list) */}
-          <div className="w-72 shrink-0 bg-slate-50/50 dark:bg-[#121424] border border-slate-100 dark:border-[#1f233a] rounded-2xl p-4 overflow-y-auto flex flex-col gap-4">
+          <div className="w-full md:w-72 shrink-0 bg-slate-50/50 dark:bg-[#121424] border border-slate-100 dark:border-[#1f233a] rounded-2xl p-4 overflow-y-auto flex flex-col gap-4">
             
             {exerciseMode === "system" && (
               <>
