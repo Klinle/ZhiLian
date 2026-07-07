@@ -61,12 +61,12 @@ export default function ProfilePage() {
   const [userRole, setUserRole] = useState<string>("");
 
   const categoryMapping: Record<string, { label: string, color: string }> = {
-    "programming": { label: "程序设计基础", color: "bg-blue-500" },
-    "dsa": { label: "数据结构与算法", color: "bg-emerald-500" },
-    "organization": { label: "计算机组成原理", color: "bg-amber-500" },
-    "os": { label: "操作系统", color: "bg-purple-500" },
-    "network": { label: "计算机网络", color: "bg-cyan-500" },
-    "database": { label: "数据库系统", color: "bg-rose-500" }
+    "programming": { label: "终端游戏与工具", color: "bg-blue-500" },
+    "dsa": { label: "益智游戏数据", color: "bg-emerald-500" },
+    "organization": { label: "街机游戏设计", color: "bg-amber-500" },
+    "os": { label: "实时动作并发", color: "bg-purple-500" },
+    "network": { label: "联机对战服务", color: "bg-cyan-500" },
+    "database": { label: "数据与工程", color: "bg-rose-500" }
   };
 
   useEffect(() => {

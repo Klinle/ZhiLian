@@ -121,14 +121,13 @@ class ProfileService:
         result_cat_total = await session.execute(stmt_cat_total)
         cat_totals = {row[0]: row[1] for row in result_cat_total.all()}
 
-        # 计算机六大知识能力图谱中英文映射
         category_mapping = {
-            "programming": "程序设计基础",
-            "dsa": "数据结构与算法",
-            "organization": "计算机组成原理",
-            "os": "操作系统",
-            "network": "计算机网络",
-            "database": "数据库系统"
+            "programming": "终端游戏与工具",
+            "dsa": "益智游戏数据",
+            "organization": "街机游戏设计",
+            "os": "实时动作并发",
+            "network": "联机对战服务",
+            "database": "数据与工程"
         }
 
         radar_data = []

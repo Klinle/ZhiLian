@@ -78,9 +78,9 @@ export default function DashboardPage() {
     }
   }, [mounted]);
 
-  // 技能树节点选中
+  // 蜂巢节点点击 — 直达练习页
   const handleNodeSelect = (node: KnowledgeNode) => {
-    setSelectedNode(node);
+    router.push(`/practice?nodeId=${node.id}`);
   };
 
   // 点击今日推荐列表节点
@@ -171,17 +171,16 @@ export default function DashboardPage() {
                           color: CATEGORY_COLORS[selectedNode.category] || "#6366f1",
                         }}
                       >
-                        {selectedNode.category === "dsa"
-                          ? "数据结构"
-                          : selectedNode.category === "os"
-                          ? "操作系统"
-                          : selectedNode.category === "network"
-                          ? "计算机网络"
-                          : selectedNode.category === "database"
-                          ? "数据库"
-                          : selectedNode.category === "programming"
-                          ? "编程基础"
-                          : "计算机组成"}
+                        {
+                          {
+                            dsa: "益智游戏数据",
+                            os: "实时动作并发",
+                            network: "联机对战服务",
+                            database: "数据与工程",
+                            programming: "终端游戏与工具",
+                            organization: "街机游戏设计",
+                          }[selectedNode.category as "dsa" | "os" | "network" | "database" | "programming" | "organization"] || "其它领域"
+                        }
                       </span>
                       <h4 className="font-extrabold text-sm text-gray-800 dark:text-zinc-100 mt-1">
                         {selectedNode.name}
@@ -226,6 +225,7 @@ export default function DashboardPage() {
                 radarData={radar}
                 onSelectNode={handleRecommendSelect}
                 onQuizPassed={() => fetchDashboardData(true)}
+                selectedNodeId={selectedNode?.id}
               />
             </div>
 

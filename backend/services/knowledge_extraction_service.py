@@ -21,8 +21,8 @@ acompletion = getattr(litellm, "acompletion")
 
 # 每批处理的 chunk 数量
 BATCH_SIZE = 3
-# RRF 常量（排名融合参数）
-VALID_CATEGORIES = {"RAG", "LangGraph", "LLMOps"}
+# 六大计算机领域分类
+VALID_CATEGORIES = {"programming", "dsa", "organization", "os", "network", "database"}
 
 
 class KnowledgeExtractionService:
@@ -86,7 +86,7 @@ class KnowledgeExtractionService:
                     if not code or not name:
                         continue
                     if category not in VALID_CATEGORIES:
-                        category = "RAG"  # 默认分类
+                        category = "programming"  # 默认分类
 
                     # 查找是否已存在同 code 的节点
                     existing = await session.execute(
@@ -101,6 +101,7 @@ class KnowledgeExtractionService:
                             category=category,
                             description=description,
                             pagerank_weight=1.0,
+                            source="extraction",
                         )
                         session.add(node)
                         await session.flush()  # 获取 id
@@ -195,16 +196,16 @@ class KnowledgeExtractionService:
 {{
     "nodes": [
         {{
-            "code": "RAG_CHUNK_STRATEGY",
-            "name": "分块策略",
-            "category": "RAG",
-            "description": "文档分块是RAG系统的基础步骤，影响检索质量和生成效果。"
+            "code": "DSA_BUBBLE_SORT",
+            "name": "冒泡排序",
+            "category": "dsa",
+            "description": "冒泡排序是一种简单的交换排序算法，通过反复比较相邻元素并交换使最大值逐步冒泡到序列末端。"
         }}
     ],
     "relations": [
         {{
-            "source_code": "RAG_CHUNK_STRATEGY",
-            "target_code": "RAG_EMBEDDING",
+            "source_code": "DSA_BUBBLE_SORT",
+            "target_code": "DSA_TIME_COMPLEXITY",
             "relation_type": "requires"
         }}
     ]
@@ -213,7 +214,13 @@ class KnowledgeExtractionService:
 
 ## 注意事项
 1. 每个节点的 code 必须是大写英文+下划线格式，唯一且具有描述性
-2. category 必须是 "RAG"、"LangGraph" 或 "LLMOps" 之一
+2. category 必须是以下六大计算机领域之一：
+   - "programming": 终端游戏与工具（变量、循环控制流、内置容器、函数参数解包、异常捕获等基础）
+   - "dsa": 益智游戏数据（列表生成推导式、装饰器切面、迭代器生成器、垃圾回收管理、反射反射元编程等高级）
+   - "organization": 街机游戏设计（类与实例、面向对象继承多态MRO、魔术方法重载、属性拦截、__slots__优化等结构）
+   - "os": 实时动作并发（Pathlib文件IO、GIL锁原理、多线程并发、多进程并行、asyncio协程、并发池等系统并发）
+   - "network": 联机对战服务（Socket网络通信、requests请求、FastAPI Web API、网关协议、序列化、虚拟环境等联机）
+   - "database": 数据与工程（SQLite嵌入式、SQLAlchemy ORM、pytest单元测试、NumPy/Pandas矩阵与数据清洗分析等）
 3. relation_type 只能是 "requires"（前置依赖）或 "extends"（扩展延伸）
 4. 只提取真正重要的知识点，每个批次最多提取 5 个节点
 5. 如果文本中没有明显的知识点，返回空数组：{{"nodes": [], "relations": []}}

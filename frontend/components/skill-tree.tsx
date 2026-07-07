@@ -19,12 +19,12 @@ interface SkillTreeProps {
 const CATEGORY_ORDER = ["programming", "dsa", "organization", "os", "network", "database"];
 
 const CATEGORY_NAMES: Record<string, string> = {
-  programming: "编程基础",
-  dsa: "数据结构",
-  organization: "计算机组成",
-  os: "操作系统",
-  network: "计算机网络",
-  database: "数据库",
+  programming: "终端游戏与工具",
+  dsa: "益智游戏数据",
+  organization: "街机游戏设计",
+  os: "实时动作并发",
+  network: "联机对战服务",
+  database: "数据与工程",
 };
 
 export default function SkillTree({ nodes, relations, onNodeSelect }: SkillTreeProps) {

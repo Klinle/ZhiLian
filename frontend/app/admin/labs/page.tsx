@@ -1,34 +1,111 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import AdminLayout from "@/components/admin-layout";
 import { adminApi } from "@/lib/api";
 import { useSettingsStore, SUPPORTED_MODELS } from "@/stores/settings";
-import { Loader2, Plus, Trash2, Pencil, Award, X, Sparkles, Brain, Check, RefreshCw } from "lucide-react";
+import type { Lab, GeneratedLab, LabFilterParams, KnowledgeNode, NodeContextPreview, GenerateBatchResult } from "@/types";
+import {
+  Loader2, Plus, Trash2, Pencil, Award, X, Sparkles, Brain, Check,
+  Search, Calendar, CheckCircle2, BookOpen, FileText, AlertTriangle,
+} from "lucide-react";
+
+// 题型显示名称映射
+const LAB_TYPE_LABELS: Record<string, string> = {
+  code: "编程题",
+  quiz: "选择题",
+  match: "连线题",
+  arrange: "排序题",
+  fill: "填空题",
+};
+
+// 题型标签颜色映射
+const LAB_TYPE_COLORS: Record<string, string> = {
+  quiz: "bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400",
+  match: "bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400",
+  arrange: "bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400",
+  fill: "bg-cyan-50 dark:bg-cyan-950/40 text-cyan-600 dark:text-cyan-400",
+  code: "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400",
+};
+
+// 难度标签颜色映射
+const DIFFICULTY_COLORS: Record<string, string> = {
+  easy: "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400",
+  medium: "bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400",
+  hard: "bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400",
+};
+
+// 知识节点分类中文名映射
+const CATEGORY_LABELS: Record<string, string> = {
+  programming: "终端游戏与工具",
+  dsa: "益智游戏数据",
+  organization: "街机游戏设计",
+  os: "实时动作并发",
+  network: "联机对战服务",
+  database: "数据与工程",
+};
+
+// 分类颜色映射
+const CATEGORY_COLORS: Record<string, string> = {
+  programming: "bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400",
+  dsa: "bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400",
+  organization: "bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400",
+  os: "bg-cyan-50 dark:bg-cyan-950/40 text-cyan-600 dark:text-cyan-400",
+  network: "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400",
+  database: "bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400",
+};
+
+interface LabFormData {
+  title: string;
+  description: string;
+  starter_code: string;
+  test_cases: string;
+  node_id: string;
+  difficulty: string;
+  lab_type: string;
+  detailed_explanation: string;
+}
+
+interface BatchParamsState {
+  node_id: string;
+  exercise_type: string;
+  difficulty: string;
+  count: number;
+}
 
 export default function AdminLabsPage() {
-  const [labs, setLabs] = useState<any[]>([]);
+  const [labs, setLabs] = useState<Lab[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [editingLab, setEditingLab] = useState<any>(null);
-  
+  const [editingLab, setEditingLab] = useState<Lab | null>(null);
+
+  // 筛选状态
+  const [filterParams, setFilterParams] = useState<LabFilterParams>({});
+  const [searchInput, setSearchInput] = useState("");
+
   // 批量出题相关状态
   const [showBatchModal, setShowBatchModal] = useState(false);
-  const [nodes, setNodes] = useState<any[]>([]);
+  const [nodes, setNodes] = useState<KnowledgeNode[]>([]);
   const [nodesLoading, setNodesLoading] = useState(false);
-  const [batchParams, setBatchParams] = useState({
+  const [batchParams, setBatchParams] = useState<BatchParamsState>({
     node_id: "",
     exercise_type: "quiz",
     difficulty: "medium",
-    count: 3
+    count: 3,
   });
   const [batchGenerating, setBatchGenerating] = useState(false);
-  const [generatedLabs, setGeneratedLabs] = useState<any[]>([]);
+  const [generatedLabs, setGeneratedLabs] = useState<GeneratedLab[]>([]);
   const [batchSaving, setBatchSaving] = useState(false);
+
+  // 知识节点搜索与上下文预览
+  const [nodeSearch, setNodeSearch] = useState("");
+  const [nodeContext, setNodeContext] = useState<NodeContextPreview | null>(null);
+  const [nodeContextLoading, setNodeContextLoading] = useState(false);
+  const [contextInfo, setContextInfo] = useState<GenerateBatchResult["context_info"] | null>(null);
 
   const { apiKeys, openaiApiKey, model: settingsModel, baseUrls } = useSettingsStore();
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<LabFormData>({
     title: "",
     description: "",
     starter_code: "",
@@ -44,9 +121,33 @@ export default function AdminLabsPage() {
   const apiKey = apiKeys[provider] || (provider === "openai" ? openaiApiKey : "") || "";
   const baseUrl = baseUrls[provider] || "";
 
-  const fetchLabs = useCallback(async () => {
+  // 题库统计（前端计算）
+  const stats = useMemo(() => {
+    const total = labs.length;
+    const byType: Record<string, number> = {};
+    const byDifficulty: Record<string, number> = {};
+    let withExplanation = 0;
+
+    labs.forEach((lab) => {
+      const t = lab.lab_type || "code";
+      byType[t] = (byType[t] || 0) + 1;
+      const d = lab.difficulty || "medium";
+      byDifficulty[d] = (byDifficulty[d] || 0) + 1;
+      if (lab.has_explanation) withExplanation++;
+    });
+
+    return { total, byType, byDifficulty, withExplanation };
+  }, [labs]);
+
+  // 当前选中的知识节点（用于上下文预览）
+  const selectedNode = useMemo(
+    () => nodes.find((n) => n.id === batchParams.node_id) || null,
+    [nodes, batchParams.node_id],
+  );
+
+  const fetchLabs = useCallback(async (params?: LabFilterParams) => {
     try {
-      const data = await adminApi.listLabs();
+      const data = await adminApi.listLabs(params);
       setLabs(data);
     } catch (error) {
       console.error("Failed to fetch labs:", error);
@@ -70,9 +171,74 @@ export default function AdminLabsPage() {
     }
   }, [batchParams.node_id]);
 
+  // 初始加载
   useEffect(() => {
     fetchLabs();
   }, [fetchLabs]);
+
+  // 筛选/搜索防抖（跳过首次渲染避免重复请求）
+  const skipDebounceRef = useRef(true);
+  useEffect(() => {
+    if (skipDebounceRef.current) {
+      skipDebounceRef.current = false;
+      return;
+    }
+    const timer = setTimeout(() => {
+      fetchLabs({ ...filterParams, search: searchInput || undefined });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [filterParams, searchInput, fetchLabs]);
+
+  // 选中知识节点后加载上下文预览
+  useEffect(() => {
+    if (!batchParams.node_id) {
+      setNodeContext(null);
+      return;
+    }
+    setNodeContextLoading(true);
+    adminApi
+      .getNodeContext(batchParams.node_id)
+      .then(setNodeContext)
+      .catch((err) => {
+        console.error("Failed to fetch node context:", err);
+        setNodeContext(null);
+      })
+      .finally(() => setNodeContextLoading(false));
+  }, [batchParams.node_id]);
+
+  // 按搜索关键词过滤的知识节点列表
+  const filteredNodes = useMemo(() => {
+    if (!nodeSearch.trim()) return nodes;
+    const q = nodeSearch.toLowerCase();
+    return nodes.filter(
+      (n) =>
+        n.name.toLowerCase().includes(q) ||
+        n.description.toLowerCase().includes(q) ||
+        n.code.toLowerCase().includes(q),
+    );
+  }, [nodes, nodeSearch]);
+
+  // 按分类分组的知识节点
+  const groupedNodes = useMemo(() => {
+    const groups: Record<string, KnowledgeNode[]> = {};
+    filteredNodes.forEach((n) => {
+      const cat = n.category || "other";
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(n);
+    });
+    return groups;
+  }, [filteredNodes]);
+
+  // 筛选变化处理
+  const handleFilterChange = (key: keyof LabFilterParams, value: string) => {
+    setFilterParams((prev) => ({ ...prev, [key]: value || undefined }));
+  };
+
+  // 重置筛选
+  const handleResetFilter = () => {
+    setFilterParams({});
+    setSearchInput("");
+  };
 
   const resetForm = () => {
     setFormData({
@@ -114,7 +280,7 @@ export default function AdminLabsPage() {
     }
   }, [formData.lab_type, showForm]);
 
-  const handleEdit = (lab: any) => {
+  const handleEdit = (lab: Lab) => {
     setEditingLab(lab);
     setFormData({
       title: lab.title || "",
@@ -131,18 +297,18 @@ export default function AdminLabsPage() {
 
   const handleSubmit = async () => {
     try {
-      const data: Record<string, any> = {
+      const data: Record<string, unknown> = {
         title: formData.title,
         description: formData.description || null,
         difficulty: formData.difficulty,
         lab_type: formData.lab_type,
         detailed_explanation: formData.detailed_explanation || null,
       };
-      
+
       if (formData.starter_code) {
         data.starter_code = formData.starter_code;
       }
-      
+
       if (formData.test_cases) {
         try {
           data.test_cases = JSON.parse(formData.test_cases);
@@ -151,7 +317,7 @@ export default function AdminLabsPage() {
           return;
         }
       }
-      
+
       if (formData.node_id) {
         data.node_id = formData.node_id;
       }
@@ -162,7 +328,7 @@ export default function AdminLabsPage() {
         await adminApi.createLab(data);
       }
       resetForm();
-      await fetchLabs();
+      await fetchLabs({ ...filterParams, search: searchInput || undefined });
     } catch (error) {
       console.error("Failed to save lab:", error);
       alert("保存失败");
@@ -170,10 +336,10 @@ export default function AdminLabsPage() {
   };
 
   const handleDelete = async (labId: string) => {
-    if (!confirm("确定要删除这个实验吗？")) return;
+    if (!confirm("确定要删除这道题目吗？")) return;
     try {
       await adminApi.deleteLab(labId);
-      await fetchLabs();
+      await fetchLabs({ ...filterParams, search: searchInput || undefined });
     } catch (error) {
       console.error("Failed to delete lab:", error);
       alert("删除失败");
@@ -184,6 +350,8 @@ export default function AdminLabsPage() {
   const handleOpenBatchModal = () => {
     fetchNodes();
     setGeneratedLabs([]);
+    setContextInfo(null);
+    setNodeSearch("");
     setShowBatchModal(true);
   };
 
@@ -203,19 +371,28 @@ export default function AdminLabsPage() {
         count: Number(batchParams.count),
         api_key: apiKey,
         model: settingsModel,
-        base_url: baseUrl
+        base_url: baseUrl,
       });
-      
+
+      setContextInfo(result.context_info || null);
+
       // 给生成的题目增加本地临时 key
-      const list = (result.labs || []).map((l: any, idx: number) => ({
-        ...l,
+      const list: GeneratedLab[] = (result.labs || []).map((l, idx) => ({
         localId: idx,
-        test_cases: l.test_cases ? JSON.stringify(l.test_cases, null, 2) : ""
+        title: (l.title as string) || "",
+        description: (l.description as string) || "",
+        starter_code: (l.starter_code as string) || "",
+        test_cases: l.test_cases ? JSON.stringify(l.test_cases, null, 2) : "",
+        difficulty: (l.difficulty as string) || batchParams.difficulty,
+        lab_type: (l.lab_type as string) || batchParams.exercise_type,
+        detailed_explanation: (l.detailed_explanation as string) || (l.explanation as string) || "",
+        node_id: batchParams.node_id,
       }));
       setGeneratedLabs(list);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Failed to batch generate labs:", error);
-      alert(error.message || "批量出题失败，请检查 API Key 等配置。");
+      const msg = error instanceof Error ? error.message : "批量出题失败，请检查 API Key 等配置。";
+      alert(msg);
     } finally {
       setBatchGenerating(false);
     }
@@ -224,7 +401,11 @@ export default function AdminLabsPage() {
   // 修改生成的题目属性
   const handleEditGeneratedField = (localId: number, field: string, value: string) => {
     setGeneratedLabs((prev) =>
-      prev.map((lab) => (lab.localId === localId ? { ...lab, [field]: value } : lab))
+      prev.map((lab) =>
+        lab.localId === localId
+          ? ({ ...lab, [field]: value } as GeneratedLab)
+          : lab,
+      ),
     );
   };
 
@@ -236,13 +417,13 @@ export default function AdminLabsPage() {
   // 批量导入数据库
   const handleBatchSave = async () => {
     if (generatedLabs.length === 0) return;
-    
+
     // 数据比对和 JSON 解析校验
-    const labsToSave = [];
+    const labsToSave: Record<string, unknown>[] = [];
     for (let i = 0; i < generatedLabs.length; i++) {
       const lab = generatedLabs[i];
-      let testCasesObj = {};
-      
+      let testCasesObj: Record<string, unknown> = {};
+
       if (lab.test_cases) {
         try {
           testCasesObj = JSON.parse(lab.test_cases);
@@ -267,29 +448,33 @@ export default function AdminLabsPage() {
     setBatchSaving(true);
     try {
       await adminApi.batchSaveLabs({ labs: labsToSave });
-      alert("批量导入成功！");
+      alert("批量导入题库成功！");
       setShowBatchModal(false);
-      await fetchLabs();
-    } catch (error: any) {
+      await fetchLabs({ ...filterParams, search: searchInput || undefined });
+    } catch (error: unknown) {
       console.error("Batch save failed:", error);
-      alert(error.message || "批量保存入库失败！");
+      const msg = error instanceof Error ? error.message : "批量导入题库失败！";
+      alert(msg);
     } finally {
       setBatchSaving(false);
     }
   };
 
+  const hasActiveFilter = !!(filterParams.lab_type || filterParams.difficulty || filterParams.search || searchInput);
+
   return (
     <AdminLayout>
       <div className="space-y-6">
+        {/* 页面标题 */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-slate-900 dark:text-white">实验管理</h1>
-            <p className="text-xs text-slate-500 mt-1">管理代码实操与选择题、连线题、排序题、填空题等趣味题库</p>
+            <h1 className="text-xl font-bold text-slate-900 dark:text-white">题库管理</h1>
+            <p className="text-xs text-slate-500 mt-1">管理内置题库 — AI 智能批量出题 + 手动录入，覆盖选择/连线/排序/填空/编程五大题型</p>
           </div>
           <div className="flex gap-2">
             <button
               onClick={handleOpenBatchModal}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-xs font-bold hover:from-indigo-650 hover:to-purple-750 transition-all shadow-sm"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-xs font-bold hover:from-indigo-600 hover:to-purple-700 transition-all shadow-sm"
             >
               <Sparkles className="h-3.5 w-3.5" />
               AI 智能批量出题
@@ -302,25 +487,125 @@ export default function AdminLabsPage() {
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 transition-all"
             >
               <Plus className="h-3.5 w-3.5" />
-              新建实验
+              手动录入题目
             </button>
           </div>
         </div>
 
+        {/* 统计概览卡片 */}
+        {!loading && labs.length > 0 && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="bg-white dark:bg-[#121424] border border-slate-200 dark:border-[#1f233a] rounded-xl p-4">
+              <div className="flex items-center gap-2 text-xs text-slate-400 mb-1">
+                <Award className="h-3.5 w-3.5" />
+                总题数
+              </div>
+              <div className="text-2xl font-bold text-slate-800 dark:text-white">{stats.total}</div>
+            </div>
+            <div className="bg-white dark:bg-[#121424] border border-slate-200 dark:border-[#1f233a] rounded-xl p-4">
+              <div className="flex items-center gap-2 text-xs text-slate-400 mb-1">
+                <BookOpen className="h-3.5 w-3.5" />
+                题型分布
+              </div>
+              <div className="text-xs text-slate-600 dark:text-slate-300 flex flex-wrap gap-1.5">
+                {Object.entries(stats.byType).map(([type, count]) => (
+                  <span key={type} className={`px-1.5 py-0.5 rounded ${LAB_TYPE_COLORS[type] || ""}`}>
+                    {LAB_TYPE_LABELS[type] || type} {count}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div className="bg-white dark:bg-[#121424] border border-slate-200 dark:border-[#1f233a] rounded-xl p-4">
+              <div className="flex items-center gap-2 text-xs text-slate-400 mb-1">
+                <Brain className="h-3.5 w-3.5" />
+                难度分布
+              </div>
+              <div className="text-xs text-slate-600 dark:text-slate-300 flex flex-wrap gap-1.5">
+                {Object.entries(stats.byDifficulty).map(([diff, count]) => (
+                  <span key={diff} className={`px-1.5 py-0.5 rounded ${DIFFICULTY_COLORS[diff] || ""}`}>
+                    {diff} {count}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div className="bg-white dark:bg-[#121424] border border-slate-200 dark:border-[#1f233a] rounded-xl p-4">
+              <div className="flex items-center gap-2 text-xs text-slate-400 mb-1">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                解析覆盖率
+              </div>
+              <div className="text-2xl font-bold text-slate-800 dark:text-white">
+                {stats.withExplanation}<span className="text-sm text-slate-400">/{stats.total}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 筛选/搜索栏 */}
+        {!loading && labs.length > 0 && (
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="relative flex-1 min-w-[200px] max-w-xs">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+              <input
+                type="text"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder="搜索题目标题..."
+                className="w-full text-xs pl-9 pr-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+            <select
+              value={filterParams.lab_type || ""}
+              onChange={(e) => handleFilterChange("lab_type", e.target.value)}
+              className="text-xs px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-indigo-500"
+            >
+              <option value="">全部题型</option>
+              <option value="code">编程题</option>
+              <option value="quiz">选择题</option>
+              <option value="match">连线题</option>
+              <option value="arrange">排序题</option>
+              <option value="fill">填空题</option>
+            </select>
+            <select
+              value={filterParams.difficulty || ""}
+              onChange={(e) => handleFilterChange("difficulty", e.target.value)}
+              className="text-xs px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-indigo-500"
+            >
+              <option value="">全部难度</option>
+              <option value="easy">简单</option>
+              <option value="medium">中等</option>
+              <option value="hard">困难</option>
+            </select>
+            {hasActiveFilter && (
+              <button
+                onClick={handleResetFilter}
+                className="text-xs px-3 py-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                重置
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* 题库列表表格 */}
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
           </div>
         ) : labs.length === 0 ? (
-          <div className="text-center py-20 text-slate-400 text-sm">暂无实验</div>
+          <div className="text-center py-20 text-slate-400 text-sm">
+            题库为空，请使用 AI 批量出题或手动录入
+          </div>
         ) : (
           <div className="bg-white dark:bg-[#121424] border border-slate-200 dark:border-[#1f233a] rounded-xl overflow-hidden">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-200 dark:border-[#1f233a] text-xs text-slate-400">
                   <th className="text-left px-4 py-3 font-medium">标题</th>
-                  <th className="text-left px-4 py-3 font-medium">类型</th>
+                  <th className="text-left px-4 py-3 font-medium">题型</th>
                   <th className="text-left px-4 py-3 font-medium">难度</th>
+                  <th className="text-left px-4 py-3 font-medium">关联节点</th>
+                  <th className="text-left px-4 py-3 font-medium">创建时间</th>
+                  <th className="text-left px-4 py-3 font-medium">解析</th>
                   <th className="text-left px-4 py-3 font-medium">操作</th>
                 </tr>
               </thead>
@@ -334,30 +619,41 @@ export default function AdminLabsPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider font-mono ${
-                        lab.lab_type === "quiz"
-                          ? "bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400"
-                          : lab.lab_type === "match"
-                          ? "bg-purple-50 dark:bg-purple-950/40 text-purple-650 dark:text-purple-400"
-                          : lab.lab_type === "arrange"
-                          ? "bg-amber-50 dark:bg-amber-955/40 text-amber-600 dark:text-amber-400"
-                          : lab.lab_type === "fill"
-                          ? "bg-cyan-50 dark:bg-cyan-955/40 text-cyan-600 dark:text-cyan-400"
-                          : "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400"
-                      }`}>
-                        {lab.lab_type}
+                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider font-mono ${LAB_TYPE_COLORS[lab.lab_type || "code"] || ""}`}>
+                        {LAB_TYPE_LABELS[lab.lab_type || "code"] || lab.lab_type}
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                        lab.difficulty === "easy"
-                          ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400"
-                          : lab.difficulty === "hard"
-                          ? "bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400"
-                          : "bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400"
-                      }`}>
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${DIFFICULTY_COLORS[lab.difficulty || "medium"] || ""}`}>
                         {lab.difficulty}
                       </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {lab.node_name ? (
+                        <span className="text-xs text-slate-600 dark:text-slate-300">
+                          {lab.node_category && (
+                            <span className="text-[10px] text-slate-400 mr-1">[{lab.node_category}]</span>
+                          )}
+                          {lab.node_name}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-300 dark:text-slate-600">未关联</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {lab.created_at && (
+                        <div className="flex items-center gap-1 text-xs text-slate-400">
+                          <Calendar className="h-3 w-3" />
+                          {lab.created_at.split("T")[0]}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {lab.has_explanation ? (
+                        <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                      ) : (
+                        <span className="text-slate-300 dark:text-slate-600">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
@@ -388,7 +684,7 @@ export default function AdminLabsPage() {
         {showBatchModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto">
             <div className="bg-white dark:bg-[#121424] rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col my-8">
-              
+
               {/* Modal Header */}
               <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-[#121424] rounded-t-2xl shrink-0">
                 <div className="flex items-center gap-2">
@@ -408,35 +704,157 @@ export default function AdminLabsPage() {
 
               {/* Modal Content */}
               <div className="flex-1 min-h-0 overflow-y-auto p-6 flex flex-col md:flex-row gap-6">
-                
+
                 {/* Left Parameter Column */}
                 <div className="w-full md:w-80 shrink-0 space-y-4 border-r border-slate-100 dark:border-slate-850 pr-0 md:pr-6">
                   <h3 className="text-xs font-bold text-slate-850 dark:text-white flex items-center gap-1">
                     <Brain className="h-3.5 w-3.5 text-indigo-500" />
                     第 1 步：配置出题参数
                   </h3>
-                  
+
                   {/* 选择知识节点 */}
-                  <div className="space-y-1">
+                  <div className="space-y-1.5">
                     <label className="text-[10px] font-bold text-slate-400">聚焦知识节点 *</label>
                     {nodesLoading ? (
-                      <div className="flex items-center justify-center py-2">
+                      <div className="flex items-center justify-center py-4">
                         <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
                       </div>
                     ) : (
-                      <select
-                        value={batchParams.node_id}
-                        onChange={(e) => setBatchParams({ ...batchParams, node_id: e.target.value })}
-                        className="w-full text-xs px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-indigo-500"
-                      >
-                        {nodes.map((node) => (
-                          <option key={node.id} value={node.id}>
-                            [{node.category || "未分类"}] {node.name}
-                          </option>
-                        ))}
-                      </select>
+                      <>
+                        {/* 搜索框 */}
+                        <div className="relative">
+                          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400" />
+                          <input
+                            type="text"
+                            value={nodeSearch}
+                            onChange={(e) => setNodeSearch(e.target.value)}
+                            placeholder="搜索节点名称 / 描述..."
+                            className="w-full text-[11px] pl-7 pr-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg focus:outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                        {/* 分类分组的节点列表 */}
+                        <div className="max-h-[300px] overflow-y-auto space-y-2 pr-1">
+                          {Object.entries(groupedNodes).length === 0 ? (
+                            <div className="text-[10px] text-slate-400 text-center py-3">未找到匹配的节点</div>
+                          ) : (
+                            Object.entries(groupedNodes).map(([cat, catNodes]) => (
+                              <div key={cat} className="space-y-1">
+                                <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider px-1">
+                                  {CATEGORY_LABELS[cat] || cat} ({catNodes.length})
+                                </div>
+                                {catNodes.map((node) => (
+                                  <button
+                                    key={node.id}
+                                    onClick={() => setBatchParams({ ...batchParams, node_id: node.id })}
+                                    className={`w-full text-left p-2 rounded-lg border transition-all ${
+                                      batchParams.node_id === node.id
+                                        ? "border-indigo-500 bg-indigo-50/60 dark:bg-indigo-950/30"
+                                        : "border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between gap-1">
+                                      <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 truncate">{node.name}</span>
+                                      <span className={`text-[8px] px-1 py-0.5 rounded font-mono shrink-0 ${CATEGORY_COLORS[node.category] || ""}`}>
+                                        {node.chunk_count}块
+                                      </span>
+                                    </div>
+                                    {node.lab_count > 0 && (
+                                      <div className="flex items-center gap-1 mt-0.5">
+                                        <span className="text-[9px] text-slate-400">已有 {node.lab_count} 题</span>
+                                        {Object.entries(node.lab_types).map(([lt, cnt]) => (
+                                          <span key={lt} className={`text-[8px] px-1 rounded ${LAB_TYPE_COLORS[lt] || ""}`}>
+                                            {LAB_TYPE_LABELS[lt] || lt} {cnt}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </button>
+                                ))}
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </>
                     )}
                   </div>
+
+                  {/* 知识上下文预览 */}
+                  {selectedNode && (
+                    <div className="p-3 bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/50 rounded-xl space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-[10px] font-bold text-indigo-500">
+                          <BookOpen className="h-3 w-3" />
+                          知识上下文预览
+                        </div>
+                        {nodeContextLoading ? (
+                          <Loader2 className="h-3 w-3 animate-spin text-slate-400" />
+                        ) : nodeContext ? (
+                          <span className="text-[9px] text-slate-500 font-mono">
+                            {nodeContext.chunk_count} 均块 / {nodeContext.total_chars} 字符
+                          </span>
+                        ) : null}
+                      </div>
+                      {selectedNode.description && (
+                        <div className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
+                          {selectedNode.description}
+                        </div>
+                      )}
+                      {/* 实际分块预览 */}
+                      {nodeContext && !nodeContextLoading ? (
+                        nodeContext.chunk_count === 0 ? (
+                          <div className="flex items-start gap-1.5 text-[10px] text-amber-600 dark:text-amber-400">
+                            <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+                            <span>该节点暂无关联知识文档，AI 将仅基于节点描述出题，建议先上传文档</span>
+                          </div>
+                        ) : (
+                          <div className="space-y-1.5">
+                            {nodeContext.preview_chunks.slice(0, 3).map((chunk, idx) => (
+                              <div key={idx} className="flex items-start gap-1.5">
+                              <FileText className="h-3 w-3 text-slate-400 mt-0.5 shrink-0" />
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-[9px] text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed break-all">
+                                    {chunk.content || "(空内容)"}
+                                  </p>
+                                  {(chunk.element_type || chunk.page_number) && (
+                                    <div className="flex gap-1 mt-0.5">
+                                      {chunk.element_type && (
+                                        <span className="text-[8px] px-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-400">{chunk.element_type}</span>
+                                      )}
+                                      {chunk.page_number && (
+                                        <span className="text-[8px] px-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-400">P.{chunk.page_number}</span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                            {nodeContext.chunk_count > 3 && (
+                              <div className="text-[9px] text-slate-400">
+                                ...还有 {nodeContext.chunk_count - 3} 个分块
+                              </div>
+                            )}
+                            <div className="text-[9px] text-indigo-500 dark:text-indigo-400 leading-relaxed">
+                              AI 将基于以上 {nodeContext.chunk_count} 个知识分块自动注入上下文，生成更精准的题目
+                            </div>
+                          </div>
+                        )
+                      ) : null}
+                      {/* 快捷操作：查看已有题目 */}
+                      {selectedNode && selectedNode.lab_count > 0 && (
+                        <button
+                          onClick={() => {
+                            setFilterParams({ node_id: selectedNode.id });
+                            setSearchInput("");
+                            setShowBatchModal(false);
+                          }}
+                          className="text-[10px] text-indigo-500 hover:text-indigo-600 flex items-center gap-1"
+                        >
+                          <Search className="h-2.5 w-2.5" />
+                          查看该节点已有 {selectedNode.lab_count} 道题目
+                        </button>
+                      )}
+                    </div>
+                  )}
 
                   {/* 题型选择 */}
                   <div className="space-y-1">
@@ -464,7 +882,7 @@ export default function AdminLabsPage() {
                           onClick={() => setBatchParams({ ...batchParams, difficulty: diff })}
                           className={`py-1.5 rounded text-[10px] font-bold capitalize transition-all ${
                             batchParams.difficulty === diff
-                              ? "bg-white dark:bg-slate-800 text-indigo-650 dark:text-indigo-400 shadow-sm"
+                              ? "bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm"
                               : "text-slate-500 hover:text-slate-700"
                           }`}
                         >
@@ -488,11 +906,11 @@ export default function AdminLabsPage() {
                     </select>
                   </div>
 
-                  {/* 针对出题大按钮 */}
+                  {/* 生成按钮 */}
                   <button
                     onClick={handleGenerateBatch}
                     disabled={batchGenerating || batchSaving}
-                    className="w-full py-3 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-650 hover:to-purple-750 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-500/10 flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none"
+                    className="w-full py-3 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-500/10 flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none"
                   >
                     {batchGenerating ? (
                       <>
@@ -510,10 +928,19 @@ export default function AdminLabsPage() {
 
                 {/* Right Preview Column */}
                 <div className="flex-1 flex flex-col min-h-0 min-w-0">
-                  <h3 className="text-xs font-bold text-slate-850 dark:text-white flex items-center gap-1 mb-4 shrink-0">
+                  <h3 className="text-xs font-bold text-slate-850 dark:text-white flex items-center gap-1 mb-2 shrink-0">
                     <Check className="h-3.5 w-3.5 text-indigo-500" />
                     第 2 步：生成的题目预览与微调
                   </h3>
+                  {contextInfo && (
+                    <div className="text-[10px] text-slate-500 dark:text-slate-400 mb-4 shrink-0 flex items-center gap-1.5">
+                      <FileText className="h-3 w-3 text-indigo-400" />
+                      基于「{contextInfo.node_name}」的 {contextInfo.chunk_count} 个知识分块（{contextInfo.context_length} 字符）智能生成
+                    </div>
+                  )}
+                  {!contextInfo && (
+                    <div className="mb-4 shrink-0" />
+                  )}
 
                   {batchGenerating ? (
                     <div className="flex-1 flex flex-col items-center justify-center text-slate-400 gap-2 border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl p-8">
@@ -523,7 +950,7 @@ export default function AdminLabsPage() {
                     </div>
                   ) : generatedLabs.length === 0 ? (
                     <div className="flex-1 flex flex-col items-center justify-center text-slate-400 text-xs border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl p-8">
-                      暂无生成的数据。请在左侧面板配置出题参数并点击“呼叫 AI 智能生成”。
+                      暂无生成的数据。请在左侧面板配置出题参数并点击&ldquo;呼叫 AI 智能生成&rdquo;。
                     </div>
                   ) : (
                     <div className="flex-1 overflow-y-auto space-y-6 pr-2">
@@ -585,7 +1012,7 @@ export default function AdminLabsPage() {
                               <textarea
                                 value={lab.starter_code}
                                 onChange={(e) => handleEditGeneratedField(lab.localId, "starter_code", e.target.value)}
-                                className="w-full text-xs px-3 py-2 bg-slate-900 text-slate-100 font-mono border border-slate-850 rounded-xl focus:outline-none focus:border-indigo-500 min-h-[60px]"
+                                className="w-full text-xs px-3 py-2 bg-slate-900 text-slate-100 font-mono border border-slate-700 rounded-xl focus:outline-none focus:border-indigo-500 min-h-[60px]"
                                 placeholder="starter_code"
                               />
                             </div>
@@ -597,7 +1024,7 @@ export default function AdminLabsPage() {
                             <textarea
                               value={lab.test_cases}
                               onChange={(e) => handleEditGeneratedField(lab.localId, "test_cases", e.target.value)}
-                              className="w-full text-[11px] px-3 py-2 bg-slate-900 text-slate-100 font-mono border border-slate-850 rounded-xl focus:outline-none focus:border-indigo-500 min-h-[100px] leading-relaxed"
+                              className="w-full text-[11px] px-3 py-2 bg-slate-900 text-slate-100 font-mono border border-slate-700 rounded-xl focus:outline-none focus:border-indigo-500 min-h-[100px] leading-relaxed"
                               placeholder="JSON test cases"
                             />
                           </div>
@@ -621,7 +1048,7 @@ export default function AdminLabsPage() {
                 <button
                   onClick={handleBatchSave}
                   disabled={generatedLabs.length === 0 || batchSaving || batchGenerating}
-                  className="px-5 py-2 rounded-lg text-xs bg-indigo-600 hover:bg-indigo-750 text-white font-bold transition-all disabled:opacity-45 disabled:pointer-events-none flex items-center gap-1.5 shadow-sm"
+                  className="px-5 py-2 rounded-lg text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold transition-all disabled:opacity-45 disabled:pointer-events-none flex items-center gap-1.5 shadow-sm"
                 >
                   {batchSaving ? (
                     <>
@@ -641,13 +1068,13 @@ export default function AdminLabsPage() {
           </div>
         )}
 
-        {/* Create/Edit Form Modal (手动表单出题，保持 T31 原样) */}
+        {/* 手动录入/编辑 Form Modal */}
         {showForm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
             <div className="bg-white dark:bg-[#121424] rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto">
               <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-[#1f233a] sticky top-0 bg-white dark:bg-[#121424] z-10">
                 <h2 className="font-bold text-sm text-slate-900 dark:text-white">
-                  {editingLab ? "编辑实验" : "新建实验"}
+                  {editingLab ? "编辑题目" : "手动录入题目"}
                 </h2>
                 <button onClick={resetForm} className="text-slate-400 hover:text-slate-600">
                   <X className="h-5 w-5" />
@@ -655,32 +1082,32 @@ export default function AdminLabsPage() {
               </div>
               <div className="p-6 space-y-4">
                 <div>
-                  <label className="text-xs font-medium text-slate-500 block mb-1">标题 *</label>
+                  <label className="text-xs font-medium text-slate-500 block mb-1">题目标题 *</label>
                   <input
                     value={formData.title}
                     onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                     className="w-full text-sm px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                    placeholder="实验标题"
+                    placeholder="题目标题"
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-slate-500 block mb-1">描述</label>
+                  <label className="text-xs font-medium text-slate-500 block mb-1">题目描述/题干</label>
                   <textarea
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                     className="w-full text-sm px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500 min-h-[60px]"
-                    placeholder="实验描述"
+                    placeholder="题目描述/题干"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-xs font-medium text-slate-500 block mb-1">类型</label>
+                    <label className="text-xs font-medium text-slate-500 block mb-1">题型</label>
                     <select
                       value={formData.lab_type}
                       onChange={(e) => setFormData({ ...formData, lab_type: e.target.value, test_cases: "" })}
                       className="w-full text-sm px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
                     >
-                      <option value="code">代码实操</option>
+                      <option value="code">编程题</option>
                       <option value="quiz">选择题 (Quiz)</option>
                       <option value="match">连线题 (Match)</option>
                       <option value="arrange">排序题 (Arrange)</option>
@@ -709,7 +1136,7 @@ export default function AdminLabsPage() {
                     placeholder="UUID 格式"
                   />
                 </div>
-                
+
                 {/* 原理解析说明 */}
                 <div>
                   <label className="text-xs font-medium text-slate-500 block mb-1">详细解答/原理解析 (用于 AI 互动讲解)</label>
@@ -746,7 +1173,7 @@ export default function AdminLabsPage() {
                     placeholder='{"questions": [...] }'
                     spellCheck={false}
                   />
-                  <div className="mt-1.5 p-2 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-850 rounded-lg text-[9px] text-slate-400 font-sans leading-normal">
+                  <div className="mt-1.5 p-2 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-lg text-[9px] text-slate-400 font-sans leading-normal">
                     <strong>配置提示：</strong>
                     {formData.lab_type === "quiz" && "选择题 JSON 需包含 questions 数组，内含 id, text, options 数组与答案索引 answer。"}
                     {formData.lab_type === "match" && "连线题 JSON 需包含 left, right 的数据数组与 pairs 键值对映射关系。"}
@@ -755,7 +1182,7 @@ export default function AdminLabsPage() {
                     {formData.lab_type === "code" && "编程题 JSON 可定义 test_cases 输入输出对用例。"}
                   </div>
                 </div>
-                
+
                 <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                   <button
                     onClick={resetForm}

@@ -8,39 +8,116 @@ from models.database import (
 )
 from core.security import get_password_hash
 
-# 旧定位的领域分类与 Agent 角色类型，迁移时用于识别并清理旧种子数据
 _LEGACY_CATEGORIES = ["RAG", "LangGraph", "LLMOps"]
-_LEGACY_ROLE_TYPES = ["rag_mentor", "langgraph_mentor", "llmops_mentor"]
+_LEGACY_ROLE_TYPES = [
+    "rag_mentor", "langgraph_mentor", "llmops_mentor",
+    "story_mentor", "practice_mentor", "quiz_mentor",
+]
 
 
 async def _cleanup_legacy_seed(session: AsyncSession):
-    """清理旧定位（RAG/LangGraph/LLMOps）种子数据，为新内容让路。
-
-    清理顺序遵守外键依赖：提交记录 → Lab → 用户知识状态 →
-    文档分块节点关联 → 知识关系 → 知识节点 → Agent。
-    """
+    # 找到所有 source='learning_path' 的旧节点
     old_nodes_res = await session.execute(
-        select(KnowledgeNode).where(KnowledgeNode.category.in_(_LEGACY_CATEGORIES))
+        select(KnowledgeNode).where(KnowledgeNode.source == "learning_path")
     )
     old_nodes = old_nodes_res.scalars().all()
     if not old_nodes:
         return False
 
     old_node_ids = [n.id for n in old_nodes]
-    print(f"[Seed] 检测到 {len(old_nodes)} 个旧定位知识节点，开始清理旧种子数据...")
+    print(f"[Seed] 检测到 {len(old_nodes)} 个已有的旧种子节点，开始清理...")
 
+    # 清理关联的 Lab 和提交记录
     old_lab_ids_sub = select(Lab.id).where(Lab.node_id.in_(old_node_ids))
     await session.execute(delete(UserLabSubmission).where(UserLabSubmission.lab_id.in_(old_lab_ids_sub)))
     await session.execute(delete(Lab).where(Lab.node_id.in_(old_node_ids)))
+    
+    # 清理用户进度状态
     await session.execute(delete(UserKnowledgeState).where(UserKnowledgeState.node_id.in_(old_node_ids)))
+    
+    # 解除文档分块关联
     await session.execute(update(DocumentChunk).where(DocumentChunk.node_id.in_(old_node_ids)).values(node_id=None))
+    
+    # 清理依赖关系边
     await session.execute(delete(KnowledgeRelation).where(KnowledgeRelation.source_node_id.in_(old_node_ids)))
     await session.execute(delete(KnowledgeRelation).where(KnowledgeRelation.target_node_id.in_(old_node_ids)))
+    
+    # 清理节点本身
     await session.execute(delete(KnowledgeNode).where(KnowledgeNode.id.in_(old_node_ids)))
-    await session.execute(delete(Agent).where(Agent.role_type.in_(_LEGACY_ROLE_TYPES)))
     await session.commit()
-    print("[Seed] 旧种子数据已清理完毕。")
+    print("[Seed] 旧种子数据已全部安全清理。")
     return True
+
+
+async def _refresh_mentors(session: AsyncSession):
+    new_mentor = (
+        await session.execute(
+            select(Agent).where(Agent.role_type == "humor_mentor")
+        )
+    ).scalars().first()
+    if new_mentor is not None:
+        print("[Seed] 新风格导师已存在，跳过注入。")
+        return
+
+    old_mentors_res = await session.execute(
+        select(Agent).where(Agent.role_type.in_(_LEGACY_ROLE_TYPES))
+    )
+    old_mentors = old_mentors_res.scalars().all()
+    if old_mentors:
+        await session.execute(
+            delete(Agent).where(Agent.role_type.in_(_LEGACY_ROLE_TYPES))
+        )
+        await session.commit()
+        print(f"[Seed] 清理 {len(old_mentors)} 个旧风格导师。")
+
+    print("[Seed] 开始注入新风格导师...")
+    mentors = [
+        Agent(
+            name="幽默大师 (HumorBot)", role_type="humor_mentor",
+            description="计算机圈段子手，用热梗和类比把枯燥概念变有趣，让零基础用户轻松入门。",
+            system_prompt=(
+                "你是「幽默大师」导师 HumorBot，一位把计算机知识讲成段子的趣味老师。教学铁律：\n"
+                "1. 先抖个机灵或生活类比破冰，再讲原理（讲栈就讲餐厅摞盘子，讲进程就讲工厂流水线）。\n"
+                "2. 全程口语化、接地气，像跟朋友聊天，适时用网络热梗调节气氛。\n"
+                "3. 多用比喻、拟人、小场景，把抽象概念变可见可感。\n"
+                "4. 用户听不懂绝不嫌弃，换个更离谱的比喻再来一次。\n"
+                "5. 涉及代码时用有趣的方式逐步拆解，每行加大白话注释。\n"
+                "6. 能讲概念、能带写代码、能出趣味测验，但风格始终幽默亲切。\n"
+                "目标：让用户笑着学会，学完后能用自己的话把概念讲给别人听。"
+            ),
+        ),
+        Agent(
+            name="严谨教授 (ProfBot)", role_type="academic_mentor",
+            description="治学严谨的计算机教授，追根溯源、逻辑缜密、术语精确，适合深度理解与考试备考。",
+            system_prompt=(
+                "你是「严谨教授」导师 ProfBot，一位治学严谨、逻辑缜密的计算机科学教授。教学铁律：\n"
+                "1. 术语精确，首次出现时给出明确定义并标注英文原词。\n"
+                "2. 追根溯源，讲清「为什么」而不只是「是什么」——从历史动机到设计权衡。\n"
+                "3. 逻辑层层递进，每步推导有理有据，绝不跳跃。\n"
+                "4. 主动构建知识体系图，标明当前概念与其他领域的联系。\n"
+                "5. 涉及代码时强调规范性与边界条件，逐行精确分析。\n"
+                "6. 能讲概念、能带写代码、能出辨析题，但风格始终严谨精准。\n"
+                "目标：让用户不仅记住，更理解底层逻辑，经得起考试和面试的深度追问。"
+            ),
+        ),
+        Agent(
+            name="实战教练 (CoachBot)", role_type="coach_mentor",
+            description="项目驱动的实战派教练，代码优先、面试视角、手把手带练，让知识落到键盘上。",
+            system_prompt=(
+                "你是「实战教练」导师 CoachBot，一位相信「敲过才算学过」的项目驱动型教练。教学铁律：\n"
+                "1. 代码优先：先给可运行的最小示例，再看效果，最后讲原理。\n"
+                "2. 用真实项目场景代入（如「做秒杀系统时你怎么用队列」），让知识有落地感。\n"
+                "3. 面试视角分析：点明高频考点、易踩的坑、面试官爱追问的延伸问题。\n"
+                "4. 手把手带练：拆解步骤，每步留小练习让用户动手验证。\n"
+                "5. 鼓励试错，用户卡住时先给调试提示再揭晓答案，培养工程直觉。\n"
+                "6. 能讲概念、能带写代码、能出实战题，但风格始终雷厉风行、项目导向。\n"
+                "目标：让用户从「看懂」升级到「会写」，面试和实战都不怵。"
+            ),
+        ),
+    ]
+    session.add_all(mentors)
+    await session.flush()
+    print("[Seed] 新风格导师注入成功！HumorBot / ProfBot / CoachBot")
 
 
 async def seed_all_data():
@@ -62,180 +139,146 @@ async def seed_all_data():
         # 1. 迁移清理旧种子数据
         await _cleanup_legacy_seed(session)
 
-        # 2. 若新内容已注入则跳过（以编程基础节点为标志）
-        if (await session.execute(select(KnowledgeNode).where(KnowledgeNode.code == "PROG_VAR"))).scalars().first() is not None:
-            print("[Seed] 计算机基础种子数据已存在，跳过注入。")
+        # 2. 独立清理旧风格导师 + 按需注入新风格导师
+        await _refresh_mentors(session)
+
+        # 3. 若知识节点已注入则跳过后续（以 Python 基础节点为标志）
+        if (await session.execute(select(KnowledgeNode).where(KnowledgeNode.code == "PY_VAR"))).scalars().first() is not None:
+            print("[Seed] Python 核心知识节点已存在，跳过注入。")
             return
 
-        print("[Seed] 开始注入「计算机基础知识趣味学习平台」种子数据...")
+        print("[Seed] 开始注入「Python 经典游戏实训大陆」知识节点数据...")
 
-        # 3. 注入智能导师 Agent（按学习风格设计，趣味化人设）
-        mentors = [
-            Agent(
-                name="故事家导师 (StoryBot)", role_type="story_mentor",
-                description="擅长用生活类比和故事把抽象的计算机概念讲得通俗易懂、妙趣横生。",
-                system_prompt=(
-                    "你是「故事家」导师 StoryBot，一位把枯燥计算机知识讲得像聊八卦一样有趣的老师。教学铁律：\n"
-                    "1. 先讲故事或生活类比，再讲原理（讲栈就讲餐厅摞盘子，讲进程线程就讲工厂和工人）。\n"
-                    "2. 禁止上来就堆术语，用大白话和比喻代替黑话，必要时再点明术语。\n"
-                    "3. 多用比喻、拟人、小场景，让抽象概念可见可感。\n"
-                    "4. 语气亲切幽默，像朋友聊天而非教科书。\n"
-                    "5. 涉及代码时配少量关键示例并逐行用大白话解释。\n"
-                    "目标：让用户学完后能用自己的话把概念讲给别人听。"
-                ),
-            ),
-            Agent(
-                name="实操官导师 (CodeBot)", role_type="practice_mentor",
-                description="擅长用代码示例和动手实验帮用户把概念落到键盘上、真正掌握。",
-                system_prompt=(
-                    "你是「实操官」导师 CodeBot，一位相信『敲过才算学过』的实战派老师。教学风格：\n"
-                    "1. 凡讲概念必配可运行的最小代码示例，先给代码再看效果。\n"
-                    "2. 用通俗一句话点题，再上代码，关键行加中文注释。\n"
-                    "3. 善于设计小练习和思考题，引导动手验证而非直接灌答案。\n"
-                    "4. 鼓励『改一改试试看』，把学习变成探索游戏。\n"
-                    "5. 用户卡住时先给提示再逐步揭晓，培养调试直觉。\n"
-                    "目标：让用户从『看懂』升级到『会写』。"
-                ),
-            ),
-            Agent(
-                name="答疑官导师 (QuizBot)", role_type="quiz_mentor",
-                description="擅长苏格拉底式追问和出题检验，帮用户查漏补缺、把知识钉牢。",
-                system_prompt=(
-                    "你是「答疑官」导师 QuizBot，一位善用提问代替灌输的苏格拉底式老师。教学风格：\n"
-                    "1. 不急于给答案，先反问引导用户自己推理。\n"
-                    "2. 擅长出小测验和辨析题，把易混淆概念放在一起考。\n"
-                    "3. 用户答错时不批评，用类比重新讲解并再出一题巩固。\n"
-                    "4. 总结时给出『一句话记忆口诀』，帮助长期记忆。\n"
-                    "5. 主动指出用户回答里的逻辑漏洞，温和但精准。\n"
-                    "目标：让用户不仅记住，还能经得起追问。"
-                ),
-            ),
-        ]
-        session.add_all(mentors)
-        await session.flush()
-
-        # 4. 注入知识图谱节点（计算机基础 6 大领域，通俗+趣味类比描述）
+        # 4. 注入 34 个 Python 核心知识节点
         nodes = {
-            "PROG_VAR": KnowledgeNode(code="PROG_VAR", name="变量与数据类型", category="programming", description="变量就像贴了标签的收纳盒，盒里数据可随时换；数据类型是盒子的规格（整数、文字、小数）。", pagerank_weight=1.0),
-            "PROG_CONTROL": KnowledgeNode(code="PROG_CONTROL", name="控制流", category="programming", description="程序里的交通灯：if 判断往哪走，for/while 决定走几遍，让代码不再一条道跑到底。", pagerank_weight=1.2),
-            "PROG_FUNC": KnowledgeNode(code="PROG_FUNC", name="函数", category="programming", description="函数是带名字的菜谱：丢进食材（参数），按步骤处理，端出菜品（返回值），还能反复调用。", pagerank_weight=1.3),
-            "PROG_RECURSION": KnowledgeNode(code="PROG_RECURSION", name="递归", category="programming", description="俄罗斯套娃：函数自己调用自己，一层套一层，直到碰到最小的那一层才停下来往回收。", pagerank_weight=1.5),
-            "PROG_SCOPE": KnowledgeNode(code="PROG_SCOPE", name="作用域", category="programming", description="变量的活动范围：在哪个房间定义的，就只在那个房间认识它，出了门可能就找不到了。", pagerank_weight=1.1),
-            "DSA_ARRAY": KnowledgeNode(code="DSA_ARRAY", name="数组", category="dsa", description="一排连号的储物柜，从 0 开始编号，按下号能秒取东西，但中间插队很麻烦。", pagerank_weight=1.2),
-            "DSA_LINKED": KnowledgeNode(code="DSA_LINKED", name="链表", category="dsa", description="寻宝游戏：每个箱子除了装宝贝，还塞着下一个箱子的地址，插入删除超灵活，但不能随机跳号。", pagerank_weight=1.3),
-            "DSA_STACK": KnowledgeNode(code="DSA_STACK", name="栈", category="dsa", description="餐厅摞盘子：最后放上去的最先被拿走（后进先出 LIFO），只能在一端操作。", pagerank_weight=1.4),
-            "DSA_QUEUE": KnowledgeNode(code="DSA_QUEUE", name="队列", category="dsa", description="食堂排队打饭：先来的先服务（先进先出 FIFO），从队尾进、队头出。", pagerank_weight=1.4),
-            "DSA_TREE": KnowledgeNode(code="DSA_TREE", name="树", category="dsa", description="倒挂的家谱：一个根在顶，层层往下分叉，每个节点有且只有一个父亲（除根外）。", pagerank_weight=1.6),
-            "DSA_GRAPH": KnowledgeNode(code="DSA_GRAPH", name="图", category="dsa", description="地铁线路图：若干站点（顶点）由线路（边）相连，能表达错综复杂的关系网络。", pagerank_weight=1.7),
-            "DSA_SORT": KnowledgeNode(code="DSA_SORT", name="排序算法", category="dsa", description="把乱七八糟的书按字母摆整齐的不同招式：冒泡、选择、快排……各有各的快慢和脾气。", pagerank_weight=1.5),
-            "DSA_SEARCH": KnowledgeNode(code="DSA_SEARCH", name="查找算法", category="dsa", description="在字典里翻字的不同套路：顺序查找一页页翻，二分查找每次砍一半，快慢天差地别。", pagerank_weight=1.4),
-            "DSA_COMPLEXITY": KnowledgeNode(code="DSA_COMPLEXITY", name="时间复杂度", category="dsa", description="衡量算法脾气的尺子：当数据量翻倍时，它是稳如老狗还是爆炸式变慢，用大 O 表示。", pagerank_weight=1.8),
-            "ORG_BINARY": KnowledgeNode(code="ORG_BINARY", name="二进制与数据表示", category="organization", description="计算机只认识 0 和 1，因为开关只有通/断两种状态；所有文字图片最终都是 01 串。", pagerank_weight=1.2),
-            "ORG_INSTRUCTION": KnowledgeNode(code="ORG_INSTRUCTION", name="指令系统", category="organization", description="CPU 能听懂的母语：一串 0 和 1 组成的操作命令，告诉 CPU 做什么、对谁做。", pagerank_weight=1.4),
-            "ORG_CPU": KnowledgeNode(code="ORG_CPU", name="CPU 工作原理", category="organization", description="计算机的大脑：不知疲倦地重复『取指令→译码→执行』，像流水线工人处理一条条命令。", pagerank_weight=1.6),
-            "ORG_MEMORY": KnowledgeNode(code="ORG_MEMORY", name="存储层次", category="organization", description="数据离 CPU 越近越快越小越贵：寄存器是手边、缓存是抽屉、内存是书桌、硬盘是仓库。", pagerank_weight=1.5),
-            "ORG_BUS": KnowledgeNode(code="ORG_BUS", name="总线", category="organization", description="计算机内部的高速公路：数据、地址、控制信号在各个部件之间靠它跑来跑去。", pagerank_weight=1.3),
-            "OS_MEMMGMT": KnowledgeNode(code="OS_MEMMGMT", name="内存管理", category="os", description="公寓管理员：给每个程序分配合适的房间（内存空间），还要防止它们互相串门搞破坏。", pagerank_weight=1.5),
-            "OS_PROCESS": KnowledgeNode(code="OS_PROCESS", name="进程与线程", category="os", description="进程是一个工厂（独立资源），线程是工厂里的工人（共享车间），工人多了干活快但也容易抢资源。", pagerank_weight=1.7),
-            "OS_SCHEDULE": KnowledgeNode(code="OS_SCHEDULE", name="CPU 调度", category="os", description="十字路口的交警：当很多进程都想用 CPU 时，调度器决定谁先用、谁等待、用多久。", pagerank_weight=1.4),
-            "OS_CONCURRENCY": KnowledgeNode(code="OS_CONCURRENCY", name="并发与同步", category="os", description="多人共用一台打印机得排队加锁，否则文件搅在一起——并发编程就是处理『同时干』的协调。", pagerank_weight=1.6),
-            "OS_FILESYS": KnowledgeNode(code="OS_FILESYS", name="文件系统", category="os", description="图书馆的目录管理：把杂乱的数据按文件、文件夹分门别类存到磁盘上，方便随时翻找。", pagerank_weight=1.3),
-            "NET_OSI": KnowledgeNode(code="NET_OSI", name="网络分层模型", category="network", description="寄快递的分层流程：OSI/TCP-IP 把通信拆成几层，每层各司其职、层层封装，复杂问题分层解决。", pagerank_weight=1.4),
-            "NET_TCP": KnowledgeNode(code="NET_TCP", name="TCP 与 UDP", category="network", description="TCP 像挂号信（保证送到、按顺序），UDP 像广播喇叭（只管喊、快但可能丢），各有适用场景。", pagerank_weight=1.5),
-            "NET_HTTP": KnowledgeNode(code="NET_HTTP", name="HTTP 协议", category="network", description="浏览器和服务器聊天的规矩：客户端发一句请求，服务器回一句响应，一问一答撑起整个 Web。", pagerank_weight=1.6),
-            "NET_ROUTING": KnowledgeNode(code="NET_ROUTING", name="路由", category="network", description="数据包的导航仪：在无数路由器之间一跳一跳地找通往目的地的最优路径。", pagerank_weight=1.4),
-            "NET_DNS": KnowledgeNode(code="NET_DNS", name="DNS 域名系统", category="network", description="互联网的通讯录：你输入好记的网址，DNS 帮你翻译成机器认的 IP 地址。", pagerank_weight=1.3),
-            "DB_MODEL": KnowledgeNode(code="DB_MODEL", name="数据模型", category="database", description="用表格描述现实世界：实体（如学生）是一张表，实体间的关系用字段或连线表达。", pagerank_weight=1.2),
-            "DB_SQL": KnowledgeNode(code="DB_SQL", name="SQL 语言", category="database", description="和数据库对话的标准语法：SELECT 查、INSERT 增、UPDATE 改、DELETE 删，一句话操成千上万条数据。", pagerank_weight=1.4),
-            "DB_INDEX": KnowledgeNode(code="DB_INDEX", name="索引", category="database", description="字典的偏旁部首目录：不用一页页翻整本，按目录秒查到目标，代价是额外占空间和写时维护。", pagerank_weight=1.5),
-            "DB_TX": KnowledgeNode(code="DB_TX", name="事务", category="database", description="打包的原子操作：要么全部成功，要么全部回滚，绝不留半成品——转账绝不能只扣款不入账。", pagerank_weight=1.6),
-            "DB_NORM": KnowledgeNode(code="DB_NORM", name="范式", category="database", description="整理房间少放杂物：通过范式减少数据冗余，避免『改一处要改十处』的混乱。", pagerank_weight=1.3),
+            # 1. 终端游戏与工具
+            "PY_VAR": KnowledgeNode(code="PY_VAR", name="变量与动态类型", category="programming", description="血量与金币：变量是游戏里存储玩家名字、血量和金币的格子，类型动态可变，放药水还是武器全随你。", pagerank_weight=1.0, source="learning_path"),
+            "PY_STR_FORMAT": KnowledgeNode(code="PY_STR_FORMAT", name="字符串与正则表达式", category="programming", description="技能攻击特效渲染：拼接伤害描述的魔术（f-string），以及在一万行古籍里瞬间揪出隐藏宝箱钥匙的正则查找器（re）。", pagerank_weight=1.1, source="learning_path"),
+            "PY_CONTROL": KnowledgeNode(code="PY_CONTROL", name="控制流语句", category="programming", description="游戏选项判定：缩进控制的代码红绿灯，if-else 决定玩家行动方向或是否战败，while 维持整个游戏的主逻辑轮询。", pagerank_weight=1.2, source="learning_path"),
+            "PY_CONTAINER": KnowledgeNode(code="PY_CONTAINER", name="内置容器与操作", category="programming", description="勇者背囊：列表是顺序睡袋，元组是不可变的祖传项链，字典是“道具:数量”的钥匙盒，集合是防重叠收纳网。", pagerank_weight=1.2, source="learning_path"),
+            "PY_FUNC": KnowledgeNode(code="PY_FUNC", name="函数与参数解包", category="programming", description="技能施放器：函数是带名字的招式配方，丢进任意材料（*args, **kwargs），就能吐出华丽的特效（返回值）。", pagerank_weight=1.3, source="learning_path"),
+            "PY_EXCEPTION": KnowledgeNode(code="PY_EXCEPTION", name="异常处理机制", category="programming", description="输入防呆护盾：用 try-except 筑起防护结界，哪怕玩家乱敲字引发致命错误，也不会导致游戏闪退崩溃。", pagerank_weight=1.1, source="learning_path"),
+
+            # 2. 益智游戏数据
+            "PY_COMPREHENSION": KnowledgeNode(code="PY_COMPREHENSION", name="推导式与生成器", category="dsa", description="地图网格一键生成：用列表推导式一行生成 2048 游戏矩阵，利用生成器实现吃一口面包变出一口，极省内存。", pagerank_weight=1.2, source="learning_path"),
+            "PY_CLOSURE": KnowledgeNode(code="PY_CLOSURE", name="闭包与装饰器", category="dsa", description="技能冷却 CD 挂件：给你的火球术挂上冰霜符文（装饰器），不改技能本身，就能在每次施法前拦截并检查冷却倒计时。", pagerank_weight=1.4, source="learning_path"),
+            "PY_ITERATOR": KnowledgeNode(code="PY_ITERATOR", name="迭代器协议", category="dsa", description="无限随机关卡产生：只要实现 __iter__ 和 __next__ 的发牌水晶，任何关卡和敌人都能在 for 循环里被无限产生。", pagerank_weight=1.3, source="learning_path"),
+            "PY_CONTEXT": KnowledgeNode(code="PY_CONTEXT", name="上下文管理器", category="dsa", description="安全存档门锁：with 进出地牢，开启时自动加载存档，不管中途踩雷崩溃，退出时都会自动落锁并清空临时变量。", pagerank_weight=1.3, source="learning_path"),
+            "PY_GC": KnowledgeNode(code="PY_GC", name="垃圾回收机制", category="dsa", description="子弹遗迹清扫工：当一个游戏实体（如射出的子弹）离开屏幕且没有任何变量抓着它，清扫工默默在后台回收其内存。", pagerank_weight=1.2, source="learning_path"),
+            "PY_META": KnowledgeNode(code="PY_META", name="反射与动态属性", category="dsa", description="作弊码输入通道：利用 getattr 和 setattr 机制，在控制台输入字符串指令，动态修改游戏内部参数实现无敌。", pagerank_weight=1.5, source="learning_path"),
+
+            # 3. 街机游戏设计
+            "PY_CLASS": KnowledgeNode(code="PY_CLASS", name="类与实例属性", category="organization", description="怪物模具与实体：类是设计图，self 是傀儡自指引路魂，每个傀儡（实例）各有一份血量与攻击值。", pagerank_weight=1.2, source="learning_path"),
+            "PY_OOP": KnowledgeNode(code="PY_OOP", name="继承与多态", category="organization", description="怪物血脉承袭：Boss 类继承普通 Enemy，在复杂的双龙抢珠（多继承）里通过 MRO 算法分清先找哪一系拜师。", pagerank_weight=1.4, source="learning_path"),
+            "PY_MAGIC": KnowledgeNode(code="PY_MAGIC", name="魔术方法重载", category="organization", description="药水融炼共鸣：通过实现 __add__ 挂钩，使两个不同的魔法属性药水可以直接“相加”融合成全新的混合药水。", pagerank_weight=1.5, source="learning_path"),
+            "PY_PROPERTY": KnowledgeNode(code="PY_PROPERTY", name="属性拦截与 property", category="organization", description="血量下限拦截器：用 @property 守卫血量属性，在被扣成负数时强行重置为 0，防止玩家血条倒流出 bug。", pagerank_weight=1.3, source="learning_path"),
+            "PY_SLOTS": KnowledgeNode(code="PY_SLOTS", name="slots 内存优化", category="organization", description="同屏万弹免卡顿：为满屏的弹幕粒子声明 __slots__，剪掉花里胡哨的属性包，内存开销瞬间缩减 80% 以上。", pagerank_weight=1.3, source="learning_path"),
+
+            # 4. 实时动作并发
+            "PY_IO": KnowledgeNode(code="PY_IO", name="文件与 Pathlib", category="os", description="路径指针罗盘：手持 pathlib，在复杂的本地目录里快速找到关卡背景图和音效文件，安全拓印到内存中。", pagerank_weight=1.2, source="learning_path"),
+            "PY_GIL": KnowledgeNode(code="PY_GIL", name="GIL 全局解释器锁", category="os", description="神殿物理天条：虚拟机铁律，无论召唤多少个巨灵线程，同一时刻只能有一个人真正在 CPU 上执行计算。", pagerank_weight=1.5, source="learning_path"),
+            "PY_THREAD": KnowledgeNode(code="PY_THREAD", name="多线程协作", category="os", description="背景音乐播放：召唤打杂的小巨灵（多线程），在主线程渲染游戏画面的同时，负责在后台播放音效，共享神殿资源。", pagerank_weight=1.4, source="learning_path"),
+            "PY_PROCESS": KnowledgeNode(code="PY_PROCESS", name="多进程与并行", category="os", description="物理碰撞多核引擎：开辟独立分舵（多进程），拥有完整家当，在不同 CPU 核心上同时算，打破 GIL 天条锁限制。", pagerank_weight=1.6, source="learning_path"),
+            "PY_ASYNC": KnowledgeNode(code="PY_ASYNC", name="异步协程 asyncio", category="os", description="幻影移形主循环：单人凭借 async/await 特技，在多个网络连接的间隙时间极速横跳，实现极高的并发响应速度。", pagerank_weight=1.6, source="learning_path"),
+            "PY_CONCURRENT": KnowledgeNode(code="PY_CONCURRENT", name="并发线程池与进程池", category="os", description="巨灵军团承包商：用 concurrent.futures 挂起承包商，把成千上万怪物的碰撞计算批量丢进去结算。", pagerank_weight=1.4, source="learning_path"),
+
+            # 5. 联机对战服务
+            "PY_SOCKET": KnowledgeNode(code="PY_SOCKET", name="套接字与通信", category="network", description="对打通信电话线：两台电脑双向开启 Socket 通道，直接投递原始字节数据，实现双人联机对战井字棋。", pagerank_weight=1.4, source="learning_path"),
+            "PY_REQUESTS": KnowledgeNode(code="PY_REQUESTS", name="网络请求与 HTTP", category="network", description="关卡数据飞鸽传书：用 requests 鸽子从服务器上实时拉取全球玩家自制的精品关卡或最新怪物配置榜。", pagerank_weight=1.4, source="learning_path"),
+            "PY_FASTAPI": KnowledgeNode(code="PY_FASTAPI", name="FastAPI 异步酒馆", category="network", description="积分排行榜 API 服务：搭建现代化异步 API 门户，极速校验并收集全球所有客户端发送的玩家最终得分排行。", pagerank_weight=1.5, source="learning_path"),
+            "PY_WSGI_ASGI": KnowledgeNode(code="PY_WSGI_ASGI", name="WSGI 与 ASGI 协议", category="network", description="跑堂小二的沟通礼仪：Python Web 服务端与框架之间握手交互的标准规范，同步 WSGI 遇上异步 ASGI。", pagerank_weight=1.3, source="learning_path"),
+            "PY_SERIALIZATION": KnowledgeNode(code="PY_SERIALIZATION", name="数据序列化", category="network", description="游戏存档打包：把内存里活生生的角色属性（对象）压缩为 JSON 字符串或 Pickle 罐头，方便跨服传输或存储。", pagerank_weight=1.4, source="learning_path"),
+            "PY_VENV": KnowledgeNode(code="PY_VENV", name="包管理与虚拟环境", category="network", description="药园温室隔离：使用 venv 和 pip 为小项目搭起玻璃房，防止你的 Pygame 依赖包和 FastAPI 发生剧毒冲突。", pagerank_weight=1.2, source="learning_path"),
+
+            # 6. 数据与工程
+            "PY_SQLITE": KnowledgeNode(code="PY_SQLITE", name="轻量嵌入数据库", category="database", description="随身小账本：无需独立安装启动，SQLite 直接把玩家的存档 and 积分记录持久化储存在本地文件中。", pagerank_weight=1.3, source="learning_path"),
+            "PY_SQLALCHEMY": KnowledgeNode(code="PY_SQLALCHEMY", name="SQLAlchemy ORM", category="database", description="法术模型映射器：在 Python 玩家对象与 SQLite 的 players 数据表之间架起双向桥梁，不用手写防人 SQL 咒语。", pagerank_weight=1.4, source="learning_path"),
+            "PY_UNITTEST": KnowledgeNode(code="PY_UNITTEST", name="单元测试与 pytest", category="database", description="防代码塌方支柱：在核心判定函数旁架起 pytest 自检符文，确保你重构或更新玩法时不会把之前的规则改出 bug。", pagerank_weight=1.3, source="learning_path"),
+            "PY_NUMPY": KnowledgeNode(code="PY_NUMPY", name="高能矩阵计算", category="database", description="画面像素大矩阵：使用 NumPy 多维高速数组，快速处理游戏屏幕像素和海量坐标移动轨迹变换公式。", pagerank_weight=1.4, source="learning_path"),
+            "PY_PANDAS": KnowledgeNode(code="PY_PANDAS", name="玩家分析 Pandas", category="database", description="关卡难度透视镜：把所有玩家在关卡死亡的位置导入 DataFrame 表格，瞬间计算出难度流失曲线，调整关卡设计。", pagerank_weight=1.5, source="learning_path"),
         }
         session.add_all(nodes.values())
         await session.flush()
 
-        # 5. 注入知识图谱依赖关系（requires 拓扑，构成学习路径）
+        # 5. 注入 34 个 Python 节点的 Requires 拓扑关系
         def edge(src, dst, rel="requires"):
             return KnowledgeRelation(source_node_id=nodes[src].id, target_node_id=nodes[dst].id, relation_type=rel)
+        
         relations = [
-            edge("PROG_VAR", "PROG_CONTROL"), edge("PROG_VAR", "PROG_FUNC"),
-            edge("PROG_FUNC", "PROG_RECURSION"), edge("PROG_FUNC", "PROG_SCOPE"),
-            edge("PROG_VAR", "DSA_ARRAY"), edge("PROG_RECURSION", "DSA_TREE"),
-            edge("DSA_ARRAY", "DSA_LINKED"), edge("DSA_ARRAY", "DSA_STACK"),
-            edge("DSA_ARRAY", "DSA_QUEUE"), edge("DSA_LINKED", "DSA_TREE"),
-            edge("DSA_TREE", "DSA_GRAPH"), edge("DSA_ARRAY", "DSA_SEARCH"),
-            edge("DSA_SEARCH", "DSA_SORT"), edge("DSA_SORT", "DSA_COMPLEXITY"),
-            edge("ORG_BINARY", "ORG_INSTRUCTION"), edge("ORG_INSTRUCTION", "ORG_CPU"),
-            edge("ORG_BINARY", "ORG_MEMORY"), edge("ORG_CPU", "ORG_BUS"),
-            edge("ORG_MEMORY", "ORG_BUS"), edge("ORG_MEMORY", "OS_MEMMGMT"),
-            edge("OS_MEMMGMT", "OS_PROCESS"), edge("OS_PROCESS", "OS_SCHEDULE"),
-            edge("OS_PROCESS", "OS_CONCURRENCY"), edge("OS_PROCESS", "OS_FILESYS"),
-            edge("NET_OSI", "NET_TCP"), edge("NET_TCP", "NET_HTTP"),
-            edge("NET_OSI", "NET_ROUTING"), edge("NET_HTTP", "NET_DNS"),
-            edge("DB_MODEL", "DB_SQL"), edge("DB_SQL", "DB_INDEX"),
-            edge("DB_SQL", "DB_TX"), edge("DB_MODEL", "DB_NORM"),
+            edge("PY_VAR", "PY_STR_FORMAT"),
+            edge("PY_STR_FORMAT", "PY_CONTROL"),
+            edge("PY_CONTROL", "PY_CONTAINER"),
+            edge("PY_CONTAINER", "PY_FUNC"),
+            edge("PY_FUNC", "PY_EXCEPTION"),
+            edge("PY_CONTAINER", "PY_COMPREHENSION"),
+            edge("PY_COMPREHENSION", "PY_CLOSURE"),
+            edge("PY_COMPREHENSION", "PY_ITERATOR"),
+            edge("PY_ITERATOR", "PY_CONTEXT"),
+            edge("PY_CLOSURE", "PY_GC"),
+            edge("PY_GC", "PY_META"),
+            edge("PY_FUNC", "PY_CLASS"),
+            edge("PY_CLASS", "PY_OOP"),
+            edge("PY_CLASS", "PY_MAGIC"),
+            edge("PY_MAGIC", "PY_SLOTS"),
+            edge("PY_OOP", "PY_PROPERTY"),
+            edge("PY_FUNC", "PY_IO"),
+            edge("PY_IO", "PY_GIL"),
+            edge("PY_GIL", "PY_THREAD"),
+            edge("PY_GIL", "PY_PROCESS"),
+            edge("PY_THREAD", "PY_ASYNC"),
+            edge("PY_PROCESS", "PY_CONCURRENT"),
+            edge("PY_EXCEPTION", "PY_SOCKET"),
+            edge("PY_SOCKET", "PY_REQUESTS"),
+            edge("PY_REQUESTS", "PY_FASTAPI"),
+            edge("PY_REQUESTS", "PY_SERIALIZATION"),
+            edge("PY_FASTAPI", "PY_WSGI_ASGI"),
+            edge("PY_VENV", "PY_FASTAPI"),
+            edge("PY_IO", "PY_VENV"),
+            edge("PY_VENV", "PY_SQLITE"),
+            edge("PY_SQLITE", "PY_SQLALCHEMY"),
+            edge("PY_SQLITE", "PY_UNITTEST"),
+            edge("PY_SQLALCHEMY", "PY_PANDAS"),
+            edge("PY_NUMPY", "PY_PANDAS"),
         ]
         session.add_all(relations)
 
-        # 6. 注入练习题库（code 代码实操 + quiz 概念辨析）
+        # 6. 注入 3 个趣味游戏化编程实战 Labs 题库
         labs = [
             Lab(
-                title="实现一个栈（后进先出）", lab_type="code", difficulty="easy",
-                description="动手实现一个栈。栈像餐厅摞盘子：最后放的最先拿。请实现 push/pop/peek/is_empty。",
-                starter_code="class Stack:\n    def __init__(self):\n        self._data = []\n\n    def push(self, value):\n        # 把元素压入栈顶\n        pass\n\n    def pop(self):\n        # 弹出并返回栈顶；栈空返回 None\n        pass\n\n    def peek(self):\n        # 仅查看栈顶，不弹出\n        pass\n\n    def is_empty(self):\n        # 判断栈是否为空\n        pass\n",
-                test_cases={"operations": [{"action": "push", "value": 1}, {"action": "push", "value": 2}, {"action": "pop", "expected": 2}, {"action": "push", "value": 3}, {"action": "peek", "expected": 3}, {"action": "pop", "expected": 3}, {"action": "pop", "expected": 1}, {"action": "is_empty", "expected": True}], "description": "pop 依次返回 2、3、1（LIFO），最后栈为空。"},
-                node_id=nodes["DSA_STACK"].id,
+                title="终端文字 RPG 伤害判定", lab_type="code", difficulty="easy",
+                description="设计一个控制台小游戏的伤害决策模块。玩家选择 1 时普通攻击，造成 10 到 20 之间随机伤害；玩家选择 2 时进行重击，有 50% 的概率暴击并造成双倍伤害，但有 30% 的概率落空（伤害为 0），否则造成基础 10-20 的普通伤害；选择其他数值输入则判定为非法动作返回 -1。请补全判定逻辑。",
+                starter_code="import random\n\ndef evaluate_attack(choice):\n    # choice 为整型：1 表示普攻，2 表示重击，其它为非法返回 -1\n    # 提示：你可以用 random.randint(10, 20) 产生伤害\n    # random.random() 来做概率判定\n    pass\n",
+                test_cases={
+                    "cases": [
+                        {"choice": 3, "expected": -1},
+                        {"choice": 99, "expected": -1}
+                    ],
+                    "prob_check": "输入选择 1 时应返回 10 到 20 之间的数字。输入选择 2 时返回 0 或 10-20 或 20-40（暴击）。"
+                },
+                node_id=nodes["PY_CONTROL"].id,
             ),
             Lab(
-                title="二分查找实现", lab_type="code", difficulty="medium",
-                description="在升序数组中查找目标值，返回下标；找不到返回 -1。二分查找每次砍掉一半，前提是数组有序。",
-                starter_code="def binary_search(arr, target):\n    # arr 为升序列表，返回 target 的下标，未找到返回 -1\n    pass\n",
-                test_cases={"cases": [{"arr": [1, 3, 5, 7, 9], "target": 5, "expected": 2}, {"arr": [1, 3, 5, 7, 9], "target": 1, "expected": 0}, {"arr": [1, 3, 5, 7, 9], "target": 9, "expected": 4}, {"arr": [1, 3, 5, 7, 9], "target": 6, "expected": -1}]},
-                node_id=nodes["DSA_SEARCH"].id,
+                title="加速技能冷却计时装饰器 (CD)", lab_type="code", difficulty="medium",
+                description="贪吃蛇的加速技能 speed_up() 必须防刷。编写一个装饰器 @cooldown(seconds=3) 贴在施法函数上。如果在 cooldown 计时内再次触发调用，需引发自定义的 SkillOnCooldownError 异常；否则顺利施放返回 'Speed Up!' 且重置冷却时间基准点。",
+                starter_code="import time\n\nclass SkillOnCooldownError(Exception):\n    pass\n\ndef cooldown(seconds):\n    # 补全这个装饰器，保存上一次施放的时间点\n    # 提示：在闭包中使用 nonlocal 变量或类属性记录上一次执行时间戳\n    pass\n",
+                test_cases={
+                    "custom_eval": "test_decorator",
+                    "description": "调用一次返回 'Speed Up!'，如果立即再次调用抛出 SkillOnCooldownError，冷却过后可重新调用。"
+                },
+                node_id=nodes["PY_CLOSURE"].id,
             ),
             Lab(
-                title="冒泡排序实现", lab_type="code", difficulty="easy",
-                description="实现冒泡排序：相邻元素两两比较，大的往后冒，一轮下来最大值沉底，重复直到有序。",
-                starter_code="def bubble_sort(arr):\n    # 原地排序，返回排好序的列表\n    pass\n",
-                test_cases={"cases": [{"input": [5, 2, 8, 1, 9], "expected": [1, 2, 5, 8, 9]}, {"input": [3, 1, 2], "expected": [1, 2, 3]}, {"input": [1], "expected": [1]}]},
-                node_id=nodes["DSA_SORT"].id,
-            ),
-            Lab(
-                title="栈与队列概念辨析", lab_type="quiz", difficulty="easy",
-                description="检验对栈和队列这两种基础数据结构核心特性的理解。",
-                starter_code="", node_id=nodes["DSA_STACK"].id,
-                test_cases={"questions": [
-                    {"id": "q1", "text": "下列哪种结构遵循『后进先出（LIFO）』？", "options": ["队列", "栈", "链表", "数组"], "answer": 1, "explanation": "栈是后进先出 LIFO，像餐厅摞盘子，最后放的最先拿。"},
-                    {"id": "q2", "text": "队列中新元素从哪端加入？", "options": ["队头", "队尾", "中间", "任意端"], "answer": 1, "explanation": "队列是先进先出 FIFO，新元素从队尾入队，从队头出队。"},
-                    {"id": "q3", "text": "用数组实现栈，push 的时间复杂度是？", "options": ["O(1)", "O(n)", "O(n log n)", "O(n^2)"], "answer": 0, "explanation": "数组栈的 push 只在末尾追加，时间复杂度 O(1)。"},
-                ]},
-            ),
-            Lab(
-                title="进程与线程概念辨析", lab_type="quiz", difficulty="medium",
-                description="检验对进程、线程及其关系的理解。",
-                starter_code="", node_id=nodes["OS_PROCESS"].id,
-                test_cases={"questions": [
-                    {"id": "q1", "text": "关于进程和线程，正确的是？", "options": ["进程是资源分配单位，线程是 CPU 调度单位", "进程比线程更轻量", "线程拥有独立地址空间", "一个进程只能有一个线程"], "answer": 0, "explanation": "进程是资源分配的最小单位，线程是 CPU 调度的最小单位，线程共享进程的地址空间。"},
-                    {"id": "q2", "text": "同一进程内的多线程共享什么？", "options": ["各自的栈", "各自的寄存器", "堆和全局变量", "什么都不共享"], "answer": 2, "explanation": "同一进程的线程共享堆、全局变量等资源，但各自有独立的栈和寄存器。"},
-                    {"id": "q3", "text": "线程相比进程的主要优势是？", "options": ["创建和切换开销更小", "拥有独立地址空间更安全", "不能并发", "占内存更大"], "answer": 0, "explanation": "线程共享进程资源，创建和上下文切换的开销远小于进程。"},
-                ]},
-            ),
-            Lab(
-                title="HTTP 协议入门辨析", lab_type="quiz", difficulty="easy",
-                description="检验对 HTTP 协议基础特性的理解。",
-                starter_code="", node_id=nodes["NET_HTTP"].id,
-                test_cases={"questions": [
-                    {"id": "q1", "text": "HTTP 协议默认端口是？", "options": ["80", "443", "21", "8080"], "answer": 0, "explanation": "HTTP 默认端口 80，HTTPS 默认端口 443。"},
-                    {"id": "q2", "text": "HTTP 是什么模式的协议？", "options": ["请求-响应", "服务器推送", "广播", "单向通知"], "answer": 0, "explanation": "HTTP 是客户端发请求、服务器回响应的请求-响应模式。"},
-                    {"id": "q3", "text": "HTTPS 比 HTTP 多了什么？", "options": ["加密传输(SSL/TLS)", "更快的速度", "更大的带宽", "更多端口"], "answer": 0, "explanation": "HTTPS 在 HTTP 基础上加入 SSL/TLS 加密，保障传输安全。"},
-                ]},
+                title="魔法属性药水融合重载", lab_type="code", difficulty="medium",
+                description="冒险者需要合成两瓶药水。定义 Potion 类，接受 name(str) 和 potency(int) 属性。重载 __add__ 魔术方法，当 potion_a (名称 'A', 强度 10) 与 potion_b (名称 'B', 强度 5) 相加时，合成并返回一瓶新药水，名称为 'Merged A & B'，强度为两者强度相加的值 (15)。",
+                starter_code="class Potion:\n    def __init__(self, name, potency):\n        self.name = name\n        self.potency = potency\n\n    def __add__(self, other):\n        # 补全魔术方法重载逻辑\n        pass\n",
+                test_cases={
+                    "cases": [
+                        {"init_a": {"name": "Fire", "potency": 10}, "init_b": {"name": "Ice", "potency": 12}, "expected_name": "Merged Fire & Ice", "expected_potency": 22}
+                    ]
+                },
+                node_id=nodes["PY_MAGIC"].id,
             ),
         ]
         session.add_all(labs)
-
         await session.commit()
-        print("[Seed] 计算机基础种子数据注入成功！节点34 / Agent3 / Lab7")
-
-
-if __name__ == "__main__":
-    asyncio.run(seed_all_data())
+        print("[Seed] 知识节点与练习数据注入成功！节点34 / Lab3")

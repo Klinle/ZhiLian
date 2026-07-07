@@ -517,12 +517,12 @@ function PracticeContent() {
                     className="w-full text-xs px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-indigo-500"
                   >
                     <option value="all">智能推荐 (全部)</option>
-                    <option value="程序设计基础">程序设计基础</option>
-                    <option value="数据结构与算法">数据结构与算法</option>
-                    <option value="计算机组成原理">计算机组成原理</option>
-                    <option value="操作系统">操作系统</option>
-                    <option value="计算机网络">计算机网络</option>
-                    <option value="数据库系统">数据库系统</option>
+                    <option value="programming">终端游戏与工具</option>
+                    <option value="dsa">益智游戏数据</option>
+                    <option value="organization">街机游戏设计</option>
+                    <option value="os">实时动作并发</option>
+                    <option value="network">联机对战服务</option>
+                    <option value="database">数据与工程</option>
                   </select>
                 </div>
 

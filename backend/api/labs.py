@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from collections import defaultdict
 from typing import Optional
 from uuid import UUID, uuid4
 
@@ -99,6 +100,94 @@ async def generate_exercise(
     proficiency = state.proficiency if state else 0.0
     is_lighted = bool(state.is_lighted) if state else False
 
+    # === 用户画像上下文聚合 ===
+    # 目标节点三态分类：未学习（无记录）/ 薄弱（有记录但未点亮）/ 已掌握（已点亮）
+    if state is None:
+        learning_state = "unlearned"
+    elif state.is_lighted:
+        learning_state = "mastered"
+    else:
+        learning_state = "weak"
+
+    # 科目维度：该科目下所有节点的三态分布
+    effective_subject = subject or node.category
+    stmt_subj_nodes = select(KnowledgeNode).where(KnowledgeNode.category == effective_subject)
+    subj_nodes = (await session.execute(stmt_subj_nodes)).scalars().all()
+    subj_node_ids = [n.id for n in subj_nodes]
+
+    stmt_subj_states = select(UserKnowledgeState).where(
+        UserKnowledgeState.user_id == current_user.id,
+        UserKnowledgeState.node_id.in_(subj_node_ids),
+    )
+    subj_states = (await session.execute(stmt_subj_states)).scalars().all()
+    subj_state_map = {s.node_id: s for s in subj_states}
+
+    mastered_cnt = sum(1 for s in subj_states if s.is_lighted)
+    weak_cnt = sum(1 for s in subj_states if not s.is_lighted)
+    unlearned_cnt = len(subj_nodes) - len(subj_states)
+
+    # 未学习节点名（取 pagerank 前 3，避免 prompt 过长）
+    unlearned_nodes = [n for n in subj_nodes if n.id not in subj_state_map]
+    unlearned_nodes.sort(key=lambda n: n.pagerank_weight or 0, reverse=True)
+    unlearned_names = [n.name for n in unlearned_nodes[:3]]
+
+    # 全局维度：六领域覆盖率摘要
+    stmt_all_nodes = select(KnowledgeNode)
+    all_nodes = (await session.execute(stmt_all_nodes)).scalars().all()
+
+    stmt_lighted = select(UserKnowledgeState).where(
+        UserKnowledgeState.user_id == current_user.id,
+        UserKnowledgeState.is_lighted == 1,
+    )
+    lighted_states = (await session.execute(stmt_lighted)).scalars().all()
+    lighted_ids = {s.node_id for s in lighted_states}
+
+    cat_totals: dict[str, int] = defaultdict(int)
+    cat_lighted: dict[str, int] = defaultdict(int)
+    for n in all_nodes:
+        cat_totals[n.category] += 1
+        if n.id in lighted_ids:
+            cat_lighted[n.category] += 1
+
+    total_lighted = len(lighted_ids)
+    total_nodes_count = len(all_nodes)
+    coverage_pct = round(total_lighted / total_nodes_count * 100) if total_nodes_count > 0 else 0
+    if coverage_pct < 20:
+        stage = "入门期"
+    elif coverage_pct < 60:
+        stage = "成长期"
+    else:
+        stage = "冲刺期"
+
+    # 薄弱领域（覆盖率 < 20%）
+    category_mapping = {
+        "programming": "终端游戏与工具",
+        "dsa": "益智游戏数据",
+        "organization": "街机游戏设计",
+        "os": "实时动作并发",
+        "network": "联机对战服务",
+        "database": "数据与工程",
+    }
+    weak_domains: list[str] = []
+    for eng_cat, chn_name in category_mapping.items():
+        total = cat_totals.get(eng_cat, 0)
+        lighted = cat_lighted.get(eng_cat, 0)
+        cat_cov = round(lighted / total * 100) if total > 0 else 0
+        if cat_cov < 20:
+            weak_domains.append(f"{chn_name}({cat_cov}%)")
+
+    # 组装画像上下文字符串
+    subject_chn = category_mapping.get(effective_subject, effective_subject)
+    profile_lines = [
+        f"- 学习阶段: {stage}（已点亮 {total_lighted}/{total_nodes_count} 节点，覆盖率 {coverage_pct}%）",
+        f"- 选中科目【{subject_chn}】状态: 已掌握 {mastered_cnt} / 薄弱 {weak_cnt} / 未学习 {unlearned_cnt}",
+    ]
+    if unlearned_names:
+        profile_lines.append(f"- 未学习节点: {', '.join(unlearned_names)}")
+    if weak_domains:
+        profile_lines.append(f"- 全局薄弱领域: {', '.join(weak_domains)}")
+    profile_context = "\n".join(profile_lines)
+
     exercise = await evaluation_service.generate_targeted_exercise(
         node_name=node.name,
         node_description=node.description or "",
@@ -110,6 +199,8 @@ async def generate_exercise(
         api_key=request.api_key,
         model=request.model,
         base_url=request.base_url,
+        learning_state=learning_state,
+        profile_context=profile_context,
     )
 
     if "error" in exercise:
