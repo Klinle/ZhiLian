@@ -131,17 +131,22 @@ async def get_admin_stats(
             "active_chats": conv_cnt
         })
 
-    # 2. 知识库分类节点/文档/题目分布
+    # 2. 知识库分类节点/文档/题目分布（仅统计 learning_path 种子节点，排除 extraction 自动提取节点）
     cat_node_res = (await session.execute(
-        select(KnowledgeNode.category, func.count(KnowledgeNode.id)).group_by(KnowledgeNode.category)
+        select(KnowledgeNode.category, func.count(KnowledgeNode.id))
+        .where(KnowledgeNode.source == "learning_path")
+        .group_by(KnowledgeNode.category)
     )).all()
     cat_doc_res = (await session.execute(
         select(KnowledgeNode.category, func.count(func.distinct(KnowledgeNode.document_id)))
-        .where(KnowledgeNode.document_id.isnot(None)).group_by(KnowledgeNode.category)
+        .where(KnowledgeNode.document_id.isnot(None), KnowledgeNode.source == "learning_path")
+        .group_by(KnowledgeNode.category)
     )).all()
     cat_lab_res = (await session.execute(
         select(KnowledgeNode.category, func.count(Lab.id))
-        .join(Lab, Lab.node_id == KnowledgeNode.id).group_by(KnowledgeNode.category)
+        .join(Lab, Lab.node_id == KnowledgeNode.id)
+        .where(KnowledgeNode.source == "learning_path")
+        .group_by(KnowledgeNode.category)
     )).all()
 
     category_distribution = {}
@@ -225,11 +230,15 @@ async def get_ai_operation_evaluation(
     lab_count = (await session.execute(select(func.count(Lab.id)))).scalar() or 0
 
     cat_node_res = (await session.execute(
-        select(KnowledgeNode.category, func.count(KnowledgeNode.id)).group_by(KnowledgeNode.category)
+        select(KnowledgeNode.category, func.count(KnowledgeNode.id))
+        .where(KnowledgeNode.source == "learning_path")
+        .group_by(KnowledgeNode.category)
     )).all()
     cat_lab_res = (await session.execute(
         select(KnowledgeNode.category, func.count(Lab.id))
-        .join(Lab, Lab.node_id == KnowledgeNode.id).group_by(KnowledgeNode.category)
+        .join(Lab, Lab.node_id == KnowledgeNode.id)
+        .where(KnowledgeNode.source == "learning_path")
+        .group_by(KnowledgeNode.category)
     )).all()
 
     sub_stats_res = (await session.execute(
