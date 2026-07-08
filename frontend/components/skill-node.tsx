@@ -5,12 +5,12 @@ import { Lock, Check } from "lucide-react";
 import type { KnowledgeNode } from "@/types";
 
 export const CATEGORY_COLORS: Record<string, string> = {
-  programming: "#3b82f6",  // 蓝色
-  dsa: "#ef4444",          // 红色
-  organization: "#10b981", // 绿色
-  os: "#06b6d4",           // 青色
-  network: "#8b5cf6",      // 紫色
-  database: "#f59e0b",     // 橙色
+  programming: "#84cc16",   // 柠檬绿
+  dsa: "#f43f5e",           // 玫瑰红
+  organization: "#0ea5e9",  // 蔚蓝色
+  os: "#f97316",            // 活力橙
+  network: "#a855f7",       // 浆果紫
+  database: "#10b981",      // 薄荷绿
 };
 
 interface SkillNodeProps {
@@ -37,8 +37,8 @@ export default function SkillNode({ node, isUnlocked, onClick }: SkillNodeProps)
       onClick={handleNodeClick}
       className={`relative w-20 h-[92px] shrink-0 transition-all duration-300 ${
         isUnlocked || isLighted
-          ? "cursor-pointer hover:scale-108 active:scale-95"
-          : "cursor-not-allowed opacity-60"
+          ? "cursor-pointer hover:scale-110 active:scale-95 hover:z-20"
+          : "cursor-not-allowed opacity-50"
       }`}
       title={node.name}
     >
@@ -46,7 +46,7 @@ export default function SkillNode({ node, isUnlocked, onClick }: SkillNodeProps)
         width="80"
         height="92"
         viewBox="0 0 80 92"
-        className="overflow-visible select-none drop-shadow-sm hover:drop-shadow-md transition-all"
+        className="overflow-visible select-none drop-shadow-sm hover:drop-shadow-xl transition-all"
       >
         <polygon
           points="40,0 80,23 80,69 40,92 0,69 0,23"
@@ -63,7 +63,7 @@ export default function SkillNode({ node, isUnlocked, onClick }: SkillNodeProps)
               : ""
           } transition-all duration-300`}
           style={{
-            filter: isLighted ? `drop-shadow(0 0 6px ${color}80)` : "none",
+            filter: isLighted ? `drop-shadow(0 0 8px ${color}80) drop-shadow(0 2px 4px ${color}40)` : "none",
           }}
         />
 

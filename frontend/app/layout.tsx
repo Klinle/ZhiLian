@@ -3,8 +3,11 @@ import "./globals.css";
 import ClientAssistantWrapper from "@/components/client-assistant-wrapper";
 
 export const metadata: Metadata = {
-  title: "CogniLink",
-  description: "Your intelligent knowledge management and learning companion",
+  title: "CogniLink · 知链",
+  description: "大模型应用工程敏捷实训系统 — 一站式自适应 LLMOps 智慧学习与代码实操平台",
+  icons: {
+    icon: "/logo.png",
+  },
 };
 
 export default function RootLayout({

@@ -26,6 +26,22 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { PixelAgentAvatar } from "./pixel-agent-avatar";
 
+// Python 相关快捷提问池 — 每次打开聊天框随机抽取 2 条展示
+const ALL_QUICK_PROMPTS: { label: string; message: string }[] = [
+  { label: "列表推导式 vs 生成器", message: "Python 的列表推导式和生成器有什么区别？什么时候该用哪个？" },
+  { label: "用装饰器写个计时器", message: "用 Python 装饰器实现一个函数计时器，并解释装饰器的原理" },
+  { label: "GIL 是什么？", message: "解释 Python 的 GIL（全局解释器锁）是什么，它对多线程有什么影响？" },
+  { label: "写个猜数字游戏", message: "用 Python 写一个简单的猜数字游戏，带我理解随机数和循环" },
+  { label: "切片操作技巧", message: "Python 的切片操作有哪些高级技巧？给我举几个例子" },
+  { label: "实现快速排序", message: "用 Python 实现快速排序，并用生活类比解释它的原理" },
+  { label: "with 语句怎么用？", message: "Python 的 with 语句和上下文管理器怎么用？自己怎么实现一个？" },
+  { label: "写个命令行计算器", message: "用 Python 写一个命令行计算器，支持加减乘除" },
+  { label: "闭包是什么？", message: "用通俗的方式解释 Python 的闭包，并给出一个实际例子" },
+  { label: "用 pygame 画贪吃蛇", message: "用 Python 的 pygame 实现一个简单的贪吃蛇游戏框架" },
+  { label: "字典和集合的区别", message: "Python 的 dict 和 set 底层是怎么实现的？它们有什么联系？" },
+  { label: "多进程 vs 多线程", message: "Python 中多进程和多线程分别适合什么场景？怎么选择？" },
+];
+
 export default function FloatingChatAssistant() {
   const {
     isOpen,
@@ -69,6 +85,7 @@ export default function FloatingChatAssistant() {
   const [showHistory, setShowHistory] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false); // 扩展到屏幕中央
   const [showAgentMenu, setShowAgentMenu] = useState(false); // 导师选择下拉菜单
+  const [quickPrompts, setQuickPrompts] = useState<{ label: string; message: string }[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const agentMenuRef = useRef<HTMLDivElement>(null);
@@ -245,10 +262,15 @@ export default function FloatingChatAssistant() {
 
   const isLeftAligned = isMounted && (position.x + 28) < window.innerWidth / 2;
 
-  // 初始化获取对话列表
+  // 初始化获取对话列表 + 每次打开随机刷新快捷提问
   useEffect(() => {
     if (isOpen) {
       fetchConversations();
+      // 随机抽取 2 条快捷提问
+      const shuffled = [...ALL_QUICK_PROMPTS].sort(() => Math.random() - 0.5);
+      setTimeout(() => {
+        setQuickPrompts(shuffled.slice(0, 2));
+      }, 0);
     }
   }, [isOpen]);
 
@@ -454,12 +476,20 @@ export default function FloatingChatAssistant() {
     coach_mentor: "小铁 (机器人)",
   };
 
+  // 导师风格描述 — 根据当前选中的 agent 动态显示
+  const agentStyleDesc: Record<string, string> = {
+    auto: "智能路由，自动匹配最佳导师风格",
+    humor_mentor: "幽默风趣，用段子让你记住知识点",
+    academic_mentor: "严谨学术，深入浅出剖析原理本质",
+    coach_mentor: "实战教练，手把手带你代码实操通关",
+  };
+
   return (
     <>
       {/* 扩展模式：屏幕中央半透明遮罩 */}
       {isExpanded && (
         <div
-          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40"
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 animate-in fade-in duration-200"
           onClick={() => setIsExpanded(false)}
         />
       )}
@@ -467,38 +497,38 @@ export default function FloatingChatAssistant() {
       <div
         className={`fixed z-50 flex flex-col overflow-hidden transition-all duration-300 animate-in ${
           isExpanded
-            ? "inset-0 m-auto w-[min(700px,95vw)] h-[85vh] rounded-2xl shadow-2xl fade-in zoom-in-95"
+            ? "inset-0 m-auto w-[min(700px,95vw)] h-[85vh] rounded-3xl shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] fade-in zoom-in-95"
             : `${
                 isLeftAligned ? "bottom-6 left-6 slide-in-from-left-6" : "bottom-6 right-6 slide-in-from-right-6"
-              } w-[400px] h-[600px] rounded-2xl shadow-2xl fade-in`
-        } bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md border border-gray-200 dark:border-zinc-800`}
+              } w-[400px] h-[600px] rounded-3xl shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] fade-in`
+        } bg-[#fdfaf2] dark:bg-[#181611] border-2 border-black`}
       >
       {/* 头部 */}
-      <div className="p-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white flex items-center justify-between shadow-md">
+      <div className="p-4 bg-white dark:bg-zinc-900 text-black dark:text-white flex items-center justify-between border-b-2 border-black shadow-[0_2px_0_0_rgba(0,0,0,1)]">
         <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-transparent flex items-center justify-center p-[2px]">
+          <div className="w-9 h-9 rounded-xl bg-transparent flex items-center justify-center p-[2px] border border-black/10">
             <PixelAgentAvatar agentId={selectedAgentId} className="w-full h-full" />
           </div>
           <div>
-            <h3 className="font-bold text-sm leading-none flex items-center gap-1.5">
+            <h3 className="font-black text-sm leading-none flex items-center gap-1.5">
               CogniLink AI 导师
-              {isLoading && <Loader2 className="h-3 w-3 animate-spin text-indigo-200" />}
+              {isLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-500" />}
             </h3>
             {contextNodeName ? (
-              <span className="text-[10px] text-indigo-100 mt-1 block font-medium bg-white/10 px-2 py-0.5 rounded-full w-fit">
+              <span className="text-[10px] text-black font-black mt-1.5 block bg-amber-100 border border-black px-2 py-0.5 rounded-full w-fit shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">
                 正在探讨: {contextNodeName}
               </span>
             ) : (
-              <span className="text-[10px] text-indigo-200 mt-0.5 block">随时解答你的计算机知识疑惑</span>
+              <span className="text-[10px] font-bold text-zinc-500 mt-1 block">{agentStyleDesc[selectedAgentId] || "随时解答你的计算机知识疑惑"}</span>
             )}
           </div>
         </div>
         
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 font-bold">
           <button
             onClick={() => setShowHistory(!showHistory)}
-            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-              showHistory ? "bg-white/20" : "hover:bg-white/10"
+            className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+              showHistory ? "bg-amber-100 border-black text-black" : "border-transparent hover:bg-zinc-150"
             }`}
             title="历史记录"
           >
@@ -506,7 +536,7 @@ export default function FloatingChatAssistant() {
           </button>
           <button
             onClick={startNewChat}
-            className="p-1.5 hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
+            className="p-1.5 border border-transparent hover:bg-zinc-150 rounded-lg transition-all cursor-pointer"
             title="新对话"
           >
             <Plus className="h-4 w-4" />
@@ -514,7 +544,7 @@ export default function FloatingChatAssistant() {
           {/* 扩展 / 还原 按钮 */}
           <button
             onClick={() => setIsExpanded(!isExpanded)}
-            className="p-1.5 hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
+            className="p-1.5 border border-transparent hover:bg-zinc-150 rounded-lg transition-all cursor-pointer"
             title={isExpanded ? "还原窗口" : "全屏展开"}
           >
             {isExpanded ? (
@@ -525,7 +555,7 @@ export default function FloatingChatAssistant() {
           </button>
           <button
             onClick={closeAssistant}
-            className="p-1.5 hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
+            className="p-1.5 border border-transparent hover:bg-zinc-150 rounded-lg transition-all cursor-pointer"
             title="收起"
           >
             <X className="h-4 w-4" />
@@ -535,19 +565,19 @@ export default function FloatingChatAssistant() {
 
       {/* 侧边历史记录列表 */}
       {showHistory && (
-        <div className="absolute top-16 left-0 right-0 bottom-0 bg-white dark:bg-zinc-900 z-10 border-b border-gray-200 dark:border-zinc-800 flex flex-col animate-in fade-in duration-200">
-          <div className="p-3 border-b border-gray-200 dark:border-zinc-800 flex items-center justify-between bg-slate-50 dark:bg-zinc-900/50">
-            <span className="text-xs font-semibold text-gray-500 dark:text-zinc-400">历史对话</span>
+        <div className="absolute top-16 left-0 right-0 bottom-0 bg-white dark:bg-zinc-900 z-10 border-b-2 border-black flex flex-col animate-in fade-in duration-200">
+          <div className="p-3 border-b-2 border-dashed border-black/10 flex items-center justify-between bg-zinc-50 dark:bg-zinc-900/50">
+            <span className="text-xs font-black text-zinc-500">历史对话</span>
             <button
               onClick={() => setShowHistory(false)}
-              className="text-xs text-indigo-600 dark:text-indigo-400 font-semibold cursor-pointer"
+              className="text-xs text-indigo-600 dark:text-indigo-400 font-black cursor-pointer hover:underline"
             >
               返回对话
             </button>
           </div>
-          <div className="flex-1 overflow-y-auto p-2 space-y-1">
+          <div className="flex-1 overflow-y-auto p-2.5 space-y-2">
             {conversations.length === 0 ? (
-              <p className="text-xs text-gray-400 text-center py-8">暂无历史对话</p>
+              <p className="text-xs font-bold text-zinc-400 text-center py-8">暂无历史对话</p>
             ) : (
               conversations.map((conv) => (
                 <button
@@ -557,16 +587,16 @@ export default function FloatingChatAssistant() {
                     setShowHistory(false);
                     clearContext();
                   }}
-                  className={`w-full text-left p-2.5 rounded-xl text-xs transition-all flex items-start gap-2.5 ${
+                  className={`w-full text-left p-3 rounded-2xl text-xs transition-all flex items-start gap-2.5 border-2 ${
                     currentConversationId === conv.id
-                      ? "bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900"
-                      : "hover:bg-slate-100 dark:hover:bg-zinc-800 text-gray-600 dark:text-zinc-400"
+                      ? "bg-amber-50 border-black text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+                      : "bg-white border-transparent text-zinc-550 hover:bg-zinc-100"
                   }`}
                 >
-                  <MessageSquare className="h-3.5 w-3.5 mt-0.5 shrink-0 text-gray-400" />
-                  <div className="truncate">
-                    <span className="font-semibold block truncate leading-tight">{conv.title}</span>
-                    <span className="text-[10px] text-gray-400 block mt-1">
+                  <MessageSquare className="h-4 w-4 mt-0.5 shrink-0 text-zinc-400" />
+                  <div className="truncate min-w-0 flex-1 font-bold">
+                    <span className="font-black block truncate leading-tight">{conv.title}</span>
+                    <span className="text-[10px] text-zinc-400 block mt-1">
                       {conv.message_count || 0} 条消息 · {new Date(conv.updated_at).toLocaleDateString()}
                     </span>
                   </div>
@@ -578,22 +608,22 @@ export default function FloatingChatAssistant() {
       )}
 
       {/* 控制面板（导师选择与特性开关） */}
-      <div className="p-2 border-b border-gray-100 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/20 flex items-center justify-between gap-1.5 flex-wrap">
-        {/* 导师切换 - 点击受控下拉菜单 */}
+      <div className="p-2.5 border-b-2 border-dashed border-black/10 bg-white dark:bg-zinc-900/20 flex items-center justify-between gap-1.5 flex-wrap font-sans">
+        {/* 导师切换 */}
         <div className="relative shrink-0" ref={agentMenuRef}>
           <button
             onClick={() => setShowAgentMenu(!showAgentMenu)}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 text-xs font-semibold text-gray-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-700/80 cursor-pointer transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white dark:bg-zinc-800 border-2 border-black text-xs font-black text-black dark:text-zinc-300 hover:bg-amber-50 cursor-pointer transition-colors shadow-[1.5px_1.5px_0px_0px_rgba(0,0,0,1)]"
           >
             {agentDisplayNames[selectedAgentId] || "自动导师"}
             <ChevronDown
-              className={`h-3.5 w-3.5 text-gray-400 transition-transform duration-200 ${
+              className={`h-3.5 w-3.5 text-zinc-500 transition-transform duration-200 ${
                 showAgentMenu ? "rotate-180" : ""
               }`}
             />
           </button>
           {showAgentMenu && (
-            <div className="absolute top-full left-0 mt-1 w-36 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl shadow-xl py-1 z-20 animate-in fade-in slide-in-from-top-1 duration-150">
+            <div className="absolute top-full left-0 mt-1.5 w-36 bg-white dark:bg-zinc-800 border-2 border-black rounded-2xl shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] py-1 z-20 animate-in fade-in slide-in-from-top-1 duration-150">
               {Object.entries(agentDisplayNames).map(([id, name]) => (
                 <button
                   key={id}
@@ -601,10 +631,10 @@ export default function FloatingChatAssistant() {
                     setSelectedAgentId(id);
                     setShowAgentMenu(false);
                   }}
-                  className={`w-full text-left px-3 py-1.5 text-xs font-medium transition-colors hover:bg-slate-50 dark:hover:bg-zinc-700 cursor-pointer ${
+                  className={`w-full text-left px-3 py-1.5 text-xs font-black transition-colors hover:bg-amber-50 cursor-pointer ${
                     selectedAgentId === id
-                      ? "text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/10 font-bold"
-                      : "text-gray-600 dark:text-zinc-400"
+                      ? "text-black bg-amber-100 font-black"
+                      : "text-zinc-550"
                   }`}
                 >
                   {name}
@@ -615,13 +645,13 @@ export default function FloatingChatAssistant() {
         </div>
 
         {/* 特性开关 */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1.5">
           <button
             onClick={() => setUseRAG(!useRAG)}
-            className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+            className={`p-1.5 rounded-xl border-2 transition-all cursor-pointer shadow-[1.5px_1.5px_0px_0px_rgba(0,0,0,1)] active:translate-y-0.5 active:shadow-[0.5px_0.5px_0px_0px_rgba(0,0,0,1)] ${
               useRAG
-                ? "bg-blue-50/80 border-blue-200 text-blue-600 dark:bg-blue-950/20 dark:border-blue-900 dark:text-blue-400"
-                : "border-gray-200 text-gray-400 hover:bg-slate-50 dark:border-zinc-700 dark:text-zinc-500"
+                ? "bg-amber-100 border-black text-black font-black"
+                : "bg-white border-black text-zinc-400 hover:bg-amber-50"
             }`}
             title={`知识库 RAG: ${useRAG ? "开启" : "关闭"}`}
           >
@@ -629,10 +659,10 @@ export default function FloatingChatAssistant() {
           </button>
           <button
             onClick={() => setUseMemory(!useMemory)}
-            className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+            className={`p-1.5 rounded-xl border-2 transition-all cursor-pointer shadow-[1.5px_1.5px_0px_0px_rgba(0,0,0,1)] active:translate-y-0.5 active:shadow-[0.5px_0.5px_0px_0px_rgba(0,0,0,1)] ${
               useMemory
-                ? "bg-purple-50/80 border-purple-200 text-purple-600 dark:bg-purple-950/20 dark:border-purple-900 dark:text-purple-400"
-                : "border-gray-200 text-gray-400 hover:bg-slate-50 dark:border-zinc-700 dark:text-zinc-500"
+                ? "bg-amber-100 border-black text-black font-black"
+                : "bg-white border-black text-zinc-400 hover:bg-amber-50"
             }`}
             title={`长期记忆: ${useMemory ? "开启" : "关闭"}`}
           >
@@ -640,10 +670,10 @@ export default function FloatingChatAssistant() {
           </button>
           <button
             onClick={() => setUseTools(!useTools)}
-            className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+            className={`p-1.5 rounded-xl border-2 transition-all cursor-pointer shadow-[1.5px_1.5px_0px_0px_rgba(0,0,0,1)] active:translate-y-0.5 active:shadow-[0.5px_0.5px_0px_0px_rgba(0,0,0,1)] ${
               useTools
-                ? "bg-amber-50/80 border-amber-200 text-amber-600 dark:bg-amber-950/20 dark:border-amber-900 dark:text-amber-400"
-                : "border-gray-200 text-gray-400 hover:bg-slate-50 dark:border-zinc-700 dark:text-zinc-500"
+                ? "bg-amber-100 border-black text-black font-black"
+                : "bg-white border-black text-zinc-400 hover:bg-amber-50"
             }`}
             title={`工具调用: ${useTools ? "开启" : "关闭"}`}
           >
@@ -651,10 +681,10 @@ export default function FloatingChatAssistant() {
           </button>
           <button
             onClick={() => setUseMultiAgent(!useMultiAgent)}
-            className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+            className={`p-1.5 rounded-xl border-2 transition-all cursor-pointer shadow-[1.5px_1.5px_0px_0px_rgba(0,0,0,1)] active:translate-y-0.5 active:shadow-[0.5px_0.5px_0px_0px_rgba(0,0,0,1)] ${
               useMultiAgent
-                ? "bg-indigo-50/80 border-indigo-200 text-indigo-600 dark:bg-indigo-950/20 dark:border-indigo-900 dark:text-indigo-400"
-                : "border-gray-200 text-gray-400 hover:bg-slate-50 dark:border-zinc-700 dark:text-zinc-500"
+                ? "bg-amber-100 border-black text-black font-black"
+                : "bg-white border-black text-zinc-400 hover:bg-amber-50"
             }`}
             title={`多 Agent 协同: ${useMultiAgent ? "开启" : "关闭"}`}
           >
@@ -664,32 +694,29 @@ export default function FloatingChatAssistant() {
       </div>
 
       {/* 消息区 */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/30 dark:bg-zinc-900/10">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-transparent">
         {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-4">
-            <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950/20 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+            <div className="w-12 h-12 rounded-2xl bg-amber-100 border-2 border-black text-black flex items-center justify-center shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
               <Sparkles className="h-6 w-6" />
             </div>
-            <div className="space-y-1">
-              <p className="text-xs font-bold text-gray-700 dark:text-zinc-200">随时向你的专属导师提问</p>
-              <p className="text-[10px] text-gray-400 dark:text-zinc-500 max-w-[240px]">
-                可以问我计算机网络、操作系统、数据结构等任何问题，我会用有趣的类比讲给你听！
+            <div className="space-y-1.5">
+              <p className="text-xs font-black text-black dark:text-zinc-200">随时向你的专属导师提问</p>
+              <p className="text-[10px] font-bold text-zinc-500 max-w-[245px] leading-relaxed">
+                Python 语法、游戏开发、算法数据结构……任何问题都可以问我！
               </p>
             </div>
-            {/* 快速快捷提问项 */}
-            <div className="w-full space-y-1.5 pt-2">
-              <button
-                onClick={() => onSend("请给我用通俗的故事讲讲[栈]和[队列]的区别")}
-                className="w-full text-left p-2 bg-white dark:bg-zinc-800 hover:bg-indigo-50/30 dark:hover:bg-indigo-950/10 border border-gray-100 dark:border-zinc-700 rounded-xl text-[10px] font-medium text-gray-600 dark:text-zinc-400 truncate cursor-pointer transition-colors block"
-              >
-                💡 讲讲[栈]和[队列]的区别
-              </button>
-              <button
-                onClick={() => onSend("帮我用生活故事类比一下什么是 RAG 混合检索")}
-                className="w-full text-left p-2 bg-white dark:bg-zinc-800 hover:bg-indigo-50/30 dark:hover:bg-indigo-950/10 border border-gray-100 dark:border-zinc-700 rounded-xl text-[10px] font-medium text-gray-600 dark:text-zinc-400 truncate cursor-pointer transition-colors block"
-              >
-                💡 生活故事类比什么是 RAG 混合检索
-              </button>
+            {/* 快捷提问项 */}
+            <div className="w-full space-y-2 pt-2">
+              {quickPrompts.map((prompt, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => onSend(prompt.message)}
+                  className="w-full text-left p-2.5 bg-white dark:bg-zinc-800 hover:bg-amber-50/50 border-2 border-black rounded-2xl text-[10px] font-bold text-black truncate cursor-pointer transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] block"
+                >
+                  {prompt.label}
+                </button>
+              ))}
             </div>
           </div>
         ) : (
@@ -703,32 +730,36 @@ export default function FloatingChatAssistant() {
                 className={`flex gap-2.5 ${isUser ? "justify-end" : "justify-start"}`}
               >
                 {!isUser && (
-                  <div className="w-8 h-8 rounded-lg bg-transparent flex items-center justify-center shrink-0 p-[1px] overflow-hidden border border-transparent">
+                  <div className="w-8 h-8 rounded-lg bg-transparent flex items-center justify-center shrink-0 p-[1px] overflow-hidden border border-black/10">
                     <PixelAgentAvatar agentId={selectedAgentId} className="w-full h-full" />
                   </div>
                 )}
                 <div
-                  className={`max-w-[80%] p-3 rounded-2xl shadow-sm ${
+                  className={`max-w-[80%] p-3.5 rounded-2xl border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] ${
                     isUser
-                      ? "bg-indigo-600 text-white rounded-tr-none"
-                      : "bg-white dark:bg-zinc-800 border border-gray-100 dark:border-zinc-700 text-gray-800 dark:text-zinc-200 rounded-tl-none"
+                      ? "bg-amber-100 text-black rounded-tr-none font-bold"
+                      : "bg-white dark:bg-zinc-800 text-black dark:text-zinc-200 rounded-tl-none font-bold"
                   }`}
                 >
                   {isUser ? (
                     <div className="text-sm whitespace-pre-wrap leading-relaxed">{msg.content}</div>
                   ) : msg.content ? (
                     <div className="relative">
-                      {renderMessageContent(msg.content)}
+                      {isStreaming ? (
+                        <div className="text-sm whitespace-pre-wrap leading-relaxed break-words">{msg.content}</div>
+                      ) : (
+                        renderMessageContent(msg.content)
+                      )}
                       {isStreaming && (
-                        <span className="inline-block w-1.5 h-4 bg-indigo-500 dark:bg-indigo-400 animate-pulse ml-0.5 align-middle rounded-sm" />
+                        <span className="inline-block w-[3px] h-4 bg-indigo-500 dark:bg-indigo-400 animate-pulse ml-0.5 align-middle rounded-sm" />
                       )}
                     </div>
                   ) : (
-                    /* 等待首个 token 时的思考动画 */
+                    /* 等待时的思考动画 */
                     <div className="flex items-center gap-1 py-1">
-                      <span className="w-1.5 h-1.5 bg-gray-400 dark:bg-zinc-500 rounded-full animate-bounce [animation-delay:0ms]" />
-                      <span className="w-1.5 h-1.5 bg-gray-400 dark:bg-zinc-500 rounded-full animate-bounce [animation-delay:150ms]" />
-                      <span className="w-1.5 h-1.5 bg-gray-400 dark:bg-zinc-500 rounded-full animate-bounce [animation-delay:300ms]" />
+                      <span className="w-1.5 h-1.5 bg-black dark:bg-zinc-300 rounded-full animate-bounce [animation-delay:0ms]" />
+                      <span className="w-1.5 h-1.5 bg-black dark:bg-zinc-300 rounded-full animate-bounce [animation-delay:150ms]" />
+                      <span className="w-1.5 h-1.5 bg-black dark:bg-zinc-300 rounded-full animate-bounce [animation-delay:300ms]" />
                     </div>
                   )}
                 </div>
@@ -737,11 +768,11 @@ export default function FloatingChatAssistant() {
           })
         )}
 
-        {/* 多 Agent 协同流式步骤展示 */}
+        {/* 多 Agent 协同监控 */}
         {useMultiAgent && workflowSteps.length > 0 && (
-          <div className="border border-gray-200 dark:border-zinc-800 rounded-xl p-3 bg-white dark:bg-zinc-900 shadow-sm animate-in fade-in duration-200">
-            <h4 className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 mb-2 flex items-center gap-1">
-              <Network className="h-3 w-3 animate-spin" />
+          <div className="border-2 border-black rounded-2xl p-3 bg-white dark:bg-zinc-900 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] animate-in fade-in duration-200 font-sans">
+            <h4 className="text-[10px] font-black text-black dark:text-indigo-400 mb-2.5 flex items-center gap-1">
+              <Network className="h-3.5 w-3.5 animate-spin" />
               多 Agent 协同流程监控
             </h4>
             <WorkflowPanel steps={workflowSteps} />
@@ -750,11 +781,11 @@ export default function FloatingChatAssistant() {
 
         {/* 错误展示 */}
         {errorMessage && (
-          <div className="p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-400 rounded-xl text-xs">
+          <div className="p-3 bg-rose-100 border-2 border-black text-black rounded-2xl text-xs font-bold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
             {errorMessage}
             <button
               onClick={handleRegenerate}
-              className="block mt-1 font-semibold text-indigo-600 dark:text-indigo-400 underline cursor-pointer"
+              className="block mt-1.5 font-black text-indigo-600 dark:text-indigo-400 underline cursor-pointer hover:no-underline"
             >
               重新生成回复
             </button>
@@ -766,27 +797,27 @@ export default function FloatingChatAssistant() {
       </div>
 
       {/* 输入区域 */}
-      <div className="p-3 border-t border-gray-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
-        {/* 上下文聚焦快捷引导按钮 */}
+      <div className="p-3 border-t-2 border-black bg-white dark:bg-zinc-950">
+        {/* 上下文聚焦快捷引导 */}
         {contextNodeId && contextNodeName && messages.length === 1 && messages[0].id === "welcome-context" && (
-          <div className="flex gap-2 mb-2">
+          <div className="flex gap-2 mb-2 font-sans">
             <button
               onClick={() => onSend(`请用通俗的故事类比帮我解释一下什么是${contextNodeName}`)}
-              className="flex-1 py-1.5 px-2 bg-indigo-50 hover:bg-indigo-100/80 dark:bg-indigo-950/20 dark:hover:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 rounded-lg text-[10px] font-bold text-center border border-indigo-100 dark:border-indigo-900 cursor-pointer transition-colors"
+              className="flex-1 py-1.5 px-2 bg-amber-100 hover:bg-amber-200 text-black rounded-2xl text-[10px] font-black text-center border-2 border-black cursor-pointer transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
             >
               📖 生活故事类比
             </button>
             <button
               onClick={() => onSend(`带我用代码实操一下${contextNodeName}的相关逻辑`)}
-              className="flex-1 py-1.5 px-2 bg-purple-50 hover:bg-purple-100/80 dark:bg-purple-950/20 dark:hover:bg-purple-950/40 text-purple-700 dark:text-purple-300 rounded-lg text-[10px] font-bold text-center border border-purple-100 dark:border-purple-900 cursor-pointer transition-colors"
+              className="flex-1 py-1.5 px-2 bg-indigo-500 hover:bg-indigo-400 text-white rounded-2xl text-[10px] font-black text-center border-2 border-black cursor-pointer transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
             >
               💻 代码实操演示
             </button>
           </div>
         )}
 
-        <div className="relative flex items-end gap-1.5 bg-slate-100 dark:bg-zinc-800 rounded-xl p-1.5">
-          <button className="p-1.5 hover:bg-slate-200 dark:hover:bg-zinc-700 rounded-lg transition-colors text-gray-400">
+        <div className="relative flex items-end gap-1.5 bg-zinc-50 dark:bg-zinc-800 rounded-2xl p-1.5 border-2 border-black shadow-[1.5px_1.5px_0px_0px_rgba(0,0,0,1)]">
+          <button className="p-1.5 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded-lg transition-colors text-zinc-400">
             <Paperclip className="h-4 w-4" />
           </button>
           
@@ -797,17 +828,17 @@ export default function FloatingChatAssistant() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="向 AI 导师发送消息..."
-            className="flex-1 bg-transparent border-0 outline-none text-sm text-gray-800 dark:text-zinc-100 placeholder:text-gray-400 resize-none py-1.5 max-h-[120px] focus:ring-0 focus:outline-none"
+            className="flex-1 bg-transparent border-0 outline-none text-sm text-black dark:text-zinc-100 placeholder:text-zinc-450 resize-none py-1.5 max-h-[120px] focus:ring-0 focus:outline-none font-bold"
             disabled={isLoading}
           />
           
           <button
             onClick={() => onSend()}
             disabled={!input.trim() || isLoading}
-            className={`p-2 rounded-lg transition-all ${
+            className={`p-2 rounded-xl transition-all border-2 border-black ${
               input.trim() && !isLoading
-                ? "bg-indigo-600 text-white hover:bg-indigo-500 cursor-pointer"
-                : "bg-gray-200 text-gray-400 dark:bg-zinc-700 dark:text-zinc-600"
+                ? "bg-indigo-500 text-white hover:bg-indigo-400 cursor-pointer shadow-[1.5px_1.5px_0px_0px_rgba(0,0,0,1)] active:translate-y-0.5 active:shadow-[0.5px_0.5px_0px_0px_rgba(0,0,0,1)]"
+                : "bg-zinc-200 text-zinc-400 dark:bg-zinc-700 dark:text-zinc-650"
             }`}
           >
             {isLoading ? (

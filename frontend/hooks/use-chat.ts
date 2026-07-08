@@ -205,6 +205,8 @@ export function useChat() {
 
       if (useMultiAgent) {
         setWorkflowSteps([]);
+        let lastUpdateTime = 0;
+        const UPDATE_INTERVAL = 30; // 30ms 节流，纯文本渲染足够快
         await parseSSEStream(response, ({ event, data }) => {
           const d = data as {
             status: string;
@@ -243,23 +245,35 @@ export function useChat() {
             });
           } else if (event === "content") {
             assistantMessage.content += d.text || "";
-            setMessages((prev) =>
-              prev.map((msg) =>
-                msg.id === assistantMessage.id
-                  ? { ...msg, content: assistantMessage.content }
-                  : msg
-              )
-            );
+            const now = Date.now();
+            if (now - lastUpdateTime >= UPDATE_INTERVAL) {
+              lastUpdateTime = now;
+              setMessages((prev) =>
+                prev.map((msg) =>
+                  msg.id === assistantMessage.id
+                    ? { ...msg, content: assistantMessage.content }
+                    : msg
+                )
+              );
+            }
           } else if (event === "error") {
             setErrorMessage(d.message || "多Agent工作流执行失败");
           }
         });
+        // 最终更新确保完整内容渲染
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantMessage.id
+              ? { ...msg, content: assistantMessage.content }
+              : msg
+          )
+        );
         setWorkflowSteps([]);
       } else {
         const reader = response.body!.getReader();
         const decoder = new TextDecoder();
         let lastUpdateTime = 0;
-        const UPDATE_INTERVAL = 50; // 50ms 节流，避免每个 token 都触发 ReactMarkdown 重新解析
+        const UPDATE_INTERVAL = 30; // 30ms 节流，纯文本渲染足够快，约 33fps
 
         while (true) {
           const { done, value } = await reader.read();

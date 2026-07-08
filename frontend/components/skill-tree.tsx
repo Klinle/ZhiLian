@@ -180,7 +180,7 @@ export default function SkillTree({ nodes, relations, onNodeSelect }: SkillTreeP
 
   return (
     // 外层：仅负责滚动；内层：固定尺寸画布（分类标签 + SVG 连线 + 节点），随滚动整体移动
-    <div className="w-full h-full overflow-auto bg-slate-50/20 dark:bg-zinc-950/10 rounded-2xl border border-gray-200/80 dark:border-zinc-800 p-2 min-h-[500px]">
+    <div className="w-full h-full overflow-auto bg-[#faf6eb] dark:bg-[#1b1812] border-2 border-black rounded-3xl p-4 min-h-[500px] shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] bg-[linear-gradient(rgba(139,90,43,0.04)_1px,transparent_1px),linear-gradient(90deg,rgba(139,90,43,0.04)_1px,transparent_1px)] bg-[size:30px_30px]">
 
       {/* 内容画布：宽高由节点坐标范围决定，小屏可横向滚动 */}
       <div style={{ width: Math.max(width, 480), height, position: "relative" }}>
@@ -259,8 +259,8 @@ export default function SkillTree({ nodes, relations, onNodeSelect }: SkillTreeP
               style={{ height: 130, paddingTop: rIndex === 0 ? 0 : undefined }}
               className="flex items-start"
             >
-              <div className="h-6 flex items-center bg-white/80 dark:bg-zinc-900/80 px-2 py-0.5 rounded-full border border-gray-100 dark:border-zinc-800 shadow-sm pointer-events-auto text-[10px] font-bold text-gray-400 dark:text-zinc-500">
-                <span className="w-1.5 h-1.5 rounded-full mr-1.5 shrink-0" style={{ backgroundColor: CATEGORY_COLORS[cat] }} />
+              <div className="h-7 flex items-center bg-white dark:bg-zinc-850 px-2.5 py-1 rounded-xl border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] pointer-events-auto text-[10px] font-black text-black dark:text-zinc-200">
+                <span className="w-2.5 h-2.5 rounded-full border border-black mr-1.5 shrink-0" style={{ backgroundColor: CATEGORY_COLORS[cat] }} />
                 {CATEGORY_NAMES[cat]}
               </div>
             </div>
