@@ -20,19 +20,19 @@ interface MockUser {
 }
 
 const MOCK_USERS: MockUser[] = [
-  { id: "mock-kleinle", username: "Kleinle", nickname: "Kleinle", role: "admin", created_at: "2025-01-01T08:00:00Z", nodesMastered: 0, totalNodes: 41, exercisesPassed: 0, chatCount: 123, lastActive: "18分钟前" },
-  { id: "mock-full", username: "student_full", nickname: "全栈通关大师", role: "student", created_at: "2025-01-15T10:30:00Z", nodesMastered: 41, totalNodes: 41, exercisesPassed: 87, chatCount: 186, lastActive: "12分钟前" },
-  { id: "mock-half", username: "student_half", nickname: "半程探索者", role: "student", created_at: "2025-02-10T14:00:00Z", nodesMastered: 20, totalNodes: 41, exercisesPassed: 45, chatCount: 98, lastActive: "15分钟前" },
-  { id: "mock-1", username: "chenchen", nickname: "陈晨", role: "student", created_at: "2025-03-12T09:00:00Z", nodesMastered: 11, totalNodes: 41, exercisesPassed: 24, chatCount: 42, lastActive: "25分钟前" },
-  { id: "mock-2", username: "liming", nickname: "李明", role: "student", created_at: "2025-03-15T11:00:00Z", nodesMastered: 10, totalNodes: 41, exercisesPassed: 20, chatCount: 38, lastActive: "42分钟前" },
-  { id: "mock-3", username: "wangfang", nickname: "王芳", role: "student", created_at: "2025-03-20T14:30:00Z", nodesMastered: 9, totalNodes: 41, exercisesPassed: 18, chatCount: 35, lastActive: "1小时前" },
-  { id: "mock-4", username: "zhangwei", nickname: "张伟", role: "student", created_at: "2025-04-01T09:00:00Z", nodesMastered: 8, totalNodes: 41, exercisesPassed: 15, chatCount: 30, lastActive: "3小时前" },
-  { id: "mock-5", username: "liuyang", nickname: "刘洋", role: "student", created_at: "2025-04-05T16:00:00Z", nodesMastered: 7, totalNodes: 41, exercisesPassed: 12, chatCount: 26, lastActive: "4小时前" },
-  { id: "mock-6", username: "zhaoxin", nickname: "赵鑫", role: "student", created_at: "2025-04-10T10:00:00Z", nodesMastered: 6, totalNodes: 41, exercisesPassed: 10, chatCount: 22, lastActive: "昨天" },
-  { id: "mock-7", username: "sunyue", nickname: "孙悦", role: "student", created_at: "2025-04-12T08:00:00Z", nodesMastered: 5, totalNodes: 41, exercisesPassed: 8, chatCount: 18, lastActive: "昨天" },
-  { id: "mock-8", username: "zhoulei", nickname: "周磊", role: "student", created_at: "2025-04-18T13:00:00Z", nodesMastered: 4, totalNodes: 41, exercisesPassed: 6, chatCount: 12, lastActive: "2天前" },
-  { id: "mock-9", username: "wujing", nickname: "吴静", role: "student", created_at: "2025-04-22T15:00:00Z", nodesMastered: 3, totalNodes: 41, exercisesPassed: 4, chatCount: 8, lastActive: "3天前" },
-  { id: "mock-10", username: "zhenghao", nickname: "郑浩", role: "student", created_at: "2025-05-01T10:00:00Z", nodesMastered: 1, totalNodes: 41, exercisesPassed: 2, chatCount: 3, lastActive: "5天前" },
+  { id: "mock-kleinle", username: "Kleinle", nickname: "Kleinle", role: "admin", created_at: "2026-07-05T08:00:00Z", nodesMastered: 0, totalNodes: 41, exercisesPassed: 0, chatCount: 123, lastActive: "18分钟前" },
+  { id: "mock-full", username: "student_full", nickname: "全栈通关大师", role: "student", created_at: "2026-07-05T08:00:00Z", nodesMastered: 41, totalNodes: 41, exercisesPassed: 87, chatCount: 186, lastActive: "12分钟前" },
+  { id: "mock-half", username: "student_half", nickname: "半程探索者", role: "student", created_at: "2026-07-05T08:00:00Z", nodesMastered: 20, totalNodes: 41, exercisesPassed: 45, chatCount: 98, lastActive: "15分钟前" },
+  { id: "mock-1", username: "chenchen", nickname: "陈晨", role: "student", created_at: "2026-07-05T08:00:00Z", nodesMastered: 11, totalNodes: 41, exercisesPassed: 24, chatCount: 42, lastActive: "25分钟前" },
+  { id: "mock-2", username: "liming", nickname: "李明", role: "student", created_at: "2026-07-05T08:00:00Z", nodesMastered: 10, totalNodes: 41, exercisesPassed: 20, chatCount: 38, lastActive: "42分钟前" },
+  { id: "mock-3", username: "wangfang", nickname: "王芳", role: "student", created_at: "2026-07-05T08:00:00Z", nodesMastered: 9, totalNodes: 41, exercisesPassed: 18, chatCount: 35, lastActive: "1小时前" },
+  { id: "mock-4", username: "zhangwei", nickname: "张伟", role: "student", created_at: "2026-07-05T08:00:00Z", nodesMastered: 8, totalNodes: 41, exercisesPassed: 15, chatCount: 30, lastActive: "3小时前" },
+  { id: "mock-5", username: "liuyang", nickname: "刘洋", role: "student", created_at: "2026-07-05T08:00:00Z", nodesMastered: 7, totalNodes: 41, exercisesPassed: 12, chatCount: 26, lastActive: "4小时前" },
+  { id: "mock-6", username: "zhaoxin", nickname: "赵鑫", role: "student", created_at: "2026-07-05T08:00:00Z", nodesMastered: 6, totalNodes: 41, exercisesPassed: 10, chatCount: 22, lastActive: "昨天" },
+  { id: "mock-7", username: "sunyue", nickname: "孙悦", role: "student", created_at: "2026-07-05T08:00:00Z", nodesMastered: 5, totalNodes: 41, exercisesPassed: 8, chatCount: 18, lastActive: "昨天" },
+  { id: "mock-8", username: "zhoulei", nickname: "周磊", role: "student", created_at: "2026-07-05T08:00:00Z", nodesMastered: 4, totalNodes: 41, exercisesPassed: 6, chatCount: 12, lastActive: "2天前" },
+  { id: "mock-9", username: "wujing", nickname: "吴静", role: "student", created_at: "2026-07-05T08:00:00Z", nodesMastered: 3, totalNodes: 41, exercisesPassed: 4, chatCount: 8, lastActive: "3天前" },
+  { id: "mock-10", username: "zhenghao", nickname: "郑浩", role: "student", created_at: "2026-07-05T08:00:00Z", nodesMastered: 1, totalNodes: 41, exercisesPassed: 2, chatCount: 3, lastActive: "5天前" },
 ];
 
 function getDaysSince(dateStr: string): number {

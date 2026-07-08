@@ -35,8 +35,10 @@ class ProfileService:
         result_lighted = await session.execute(stmt_lighted)
         lighted_count = result_lighted.scalar() or 0
 
-        # 2. 总节点数
-        stmt_total = select(func.count(KnowledgeNode.id))
+        # 2. 总节点数（仅统计 learning_path 种子节点，排除 extraction 自动提取节点）
+        stmt_total = select(func.count(KnowledgeNode.id)).where(
+            KnowledgeNode.source == "learning_path"
+        )
         result_total = await session.execute(stmt_total)
         total_nodes = result_total.scalar() or 0
 
@@ -113,9 +115,10 @@ class ProfileService:
             category_data[cat]["lighted"] += 1
             category_data[cat]["total_proficiency"] += state.proficiency or 0
 
-        # 获取每个分类的总节点数
+        # 获取每个分类的总节点数（仅统计 learning_path 种子节点）
         stmt_cat_total = (
             select(KnowledgeNode.category, func.count(KnowledgeNode.id))
+            .where(KnowledgeNode.source == "learning_path")
             .group_by(KnowledgeNode.category)
         )
         result_cat_total = await session.execute(stmt_cat_total)

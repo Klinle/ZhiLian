@@ -19,16 +19,16 @@ interface MockStudent {
 }
 
 const VIRTUAL_STUDENTS: MockStudent[] = [
-  { name: "陈晨", avatar: "陈晨", role: "学员", nodesMastered: 11, totalNodes: 41, exercisesPassed: 24, chatCount: 42, lastActive: "25分钟前", joinDate: "2025-03-12", weakCategories: ["并发与操作系统", "网络编程服务"] },
-  { name: "李明", avatar: "李明", role: "学员", nodesMastered: 10, totalNodes: 41, exercisesPassed: 20, chatCount: 38, lastActive: "42分钟前", joinDate: "2025-03-15", weakCategories: ["数据工程持久化"] },
-  { name: "王芳", avatar: "王芳", role: "学员", nodesMastered: 9, totalNodes: 41, exercisesPassed: 18, chatCount: 35, lastActive: "1小时前", joinDate: "2025-03-20", weakCategories: ["面向对象架构", "并发与操作系统"] },
-  { name: "张伟", avatar: "张伟", role: "学员", nodesMastered: 8, totalNodes: 41, exercisesPassed: 15, chatCount: 30, lastActive: "3小时前", joinDate: "2025-04-01", weakCategories: ["数据结构与特性"] },
-  { name: "刘洋", avatar: "刘洋", role: "学员", nodesMastered: 7, totalNodes: 41, exercisesPassed: 12, chatCount: 26, lastActive: "4小时前", joinDate: "2025-04-05", weakCategories: ["编程开发基础", "数据结构与特性"] },
-  { name: "赵鑫", avatar: "赵鑫", role: "学员", nodesMastered: 6, totalNodes: 41, exercisesPassed: 10, chatCount: 22, lastActive: "昨天", joinDate: "2025-04-10", weakCategories: ["网络编程服务", "数据工程持久化"] },
-  { name: "孙悦", avatar: "孙悦", role: "学员", nodesMastered: 5, totalNodes: 41, exercisesPassed: 8, chatCount: 18, lastActive: "昨天", joinDate: "2025-04-12", weakCategories: ["面向对象架构"] },
-  { name: "周磊", avatar: "周磊", role: "学员", nodesMastered: 4, totalNodes: 41, exercisesPassed: 6, chatCount: 12, lastActive: "2天前", joinDate: "2025-04-18", weakCategories: ["并发与操作系统", "网络编程服务", "数据工程持久化"] },
-  { name: "吴静", avatar: "吴静", role: "学员", nodesMastered: 3, totalNodes: 41, exercisesPassed: 4, chatCount: 8, lastActive: "3天前", joinDate: "2025-04-22", weakCategories: ["编程开发基础", "数据结构与特性", "面向对象架构"] },
-  { name: "郑浩", avatar: "郑浩", role: "学员", nodesMastered: 1, totalNodes: 41, exercisesPassed: 2, chatCount: 3, lastActive: "5天前", joinDate: "2025-05-01", weakCategories: ["编程开发基础", "数据结构与特性", "并发与操作系统", "网络编程服务", "数据工程持久化"] },
+  { name: "陈晨", avatar: "陈晨", role: "学员", nodesMastered: 11, totalNodes: 41, exercisesPassed: 24, chatCount: 42, lastActive: "25分钟前", joinDate: "2026-07-05", weakCategories: ["并发与操作系统", "网络编程服务"] },
+  { name: "李明", avatar: "李明", role: "学员", nodesMastered: 10, totalNodes: 41, exercisesPassed: 20, chatCount: 38, lastActive: "42分钟前", joinDate: "2026-07-05", weakCategories: ["数据工程持久化"] },
+  { name: "王芳", avatar: "王芳", role: "学员", nodesMastered: 9, totalNodes: 41, exercisesPassed: 18, chatCount: 35, lastActive: "1小时前", joinDate: "2026-07-05", weakCategories: ["面向对象架构", "并发与操作系统"] },
+  { name: "张伟", avatar: "张伟", role: "学员", nodesMastered: 8, totalNodes: 41, exercisesPassed: 15, chatCount: 30, lastActive: "3小时前", joinDate: "2026-07-05", weakCategories: ["数据结构与特性"] },
+  { name: "刘洋", avatar: "刘洋", role: "学员", nodesMastered: 7, totalNodes: 41, exercisesPassed: 12, chatCount: 26, lastActive: "4小时前", joinDate: "2026-07-05", weakCategories: ["编程开发基础", "数据结构与特性"] },
+  { name: "赵鑫", avatar: "赵鑫", role: "学员", nodesMastered: 6, totalNodes: 41, exercisesPassed: 10, chatCount: 22, lastActive: "昨天", joinDate: "2026-07-05", weakCategories: ["网络编程服务", "数据工程持久化"] },
+  { name: "孙悦", avatar: "孙悦", role: "学员", nodesMastered: 5, totalNodes: 41, exercisesPassed: 8, chatCount: 18, lastActive: "昨天", joinDate: "2026-07-05", weakCategories: ["面向对象架构"] },
+  { name: "周磊", avatar: "周磊", role: "学员", nodesMastered: 4, totalNodes: 41, exercisesPassed: 6, chatCount: 12, lastActive: "2天前", joinDate: "2026-07-05", weakCategories: ["并发与操作系统", "网络编程服务", "数据工程持久化"] },
+  { name: "吴静", avatar: "吴静", role: "学员", nodesMastered: 3, totalNodes: 41, exercisesPassed: 4, chatCount: 8, lastActive: "3天前", joinDate: "2026-07-05", weakCategories: ["编程开发基础", "数据结构与特性", "面向对象架构"] },
+  { name: "郑浩", avatar: "郑浩", role: "学员", nodesMastered: 1, totalNodes: 41, exercisesPassed: 2, chatCount: 3, lastActive: "5天前", joinDate: "2026-07-05", weakCategories: ["编程开发基础", "数据结构与特性", "并发与操作系统", "网络编程服务", "数据工程持久化"] },
 ];
 
 export default function AdminStudentsPage() {
@@ -70,7 +70,7 @@ export default function AdminStudentsPage() {
             exercisesPassed: 87,
             chatCount: 186,
             lastActive: "12分钟前",
-            joinDate: "2025-01-15",
+            joinDate: "2026-07-05",
             weakCategories: [],
           });
         } else if (apiUser.username === "student_half") {
@@ -83,7 +83,7 @@ export default function AdminStudentsPage() {
             exercisesPassed: 45,
             chatCount: 98,
             lastActive: "15分钟前",
-            joinDate: "2025-02-10",
+            joinDate: "2026-07-05",
             weakCategories: ["并发与操作系统", "网络编程服务"],
           });
         } else if (apiUser.role === "admin") {
@@ -96,7 +96,7 @@ export default function AdminStudentsPage() {
             exercisesPassed: 0,
             chatCount: 123,
             lastActive: "18分钟前",
-            joinDate: apiUser.created_at?.split("T")[0] || "2025-01-01",
+            joinDate: "2026-07-05",
             weakCategories: [],
           });
         } else {
@@ -110,7 +110,7 @@ export default function AdminStudentsPage() {
             exercisesPassed: apiUser.passed_labs || 0,
             chatCount: apiUser.total_submissions ? Math.round(apiUser.total_submissions * 0.6) : 0,
             lastActive: "1小时前",
-            joinDate: apiUser.created_at?.split("T")[0] || "2025-01-01",
+            joinDate: "2026-07-05",
             weakCategories: [],
           });
         }
@@ -131,9 +131,9 @@ export default function AdminStudentsPage() {
       console.error("Failed to fetch students:", error);
       // 网络失败时直接使用纯 Mock 数据
       const demoAccounts: MockStudent[] = [
-        { name: "全栈通关大师", avatar: "通关", role: "学员", nodesMastered: 41, totalNodes: 41, exercisesPassed: 87, chatCount: 186, lastActive: "12分钟前", joinDate: "2025-01-15", weakCategories: [] },
-        { name: "半程探索者", avatar: "半程", role: "学员", nodesMastered: 20, totalNodes: 41, exercisesPassed: 45, chatCount: 98, lastActive: "15分钟前", joinDate: "2025-02-10", weakCategories: ["并发与操作系统", "网络编程服务"] },
-        { name: "Kleinle", avatar: "Kl", role: "管理员", nodesMastered: 0, totalNodes: 41, exercisesPassed: 0, chatCount: 123, lastActive: "18分钟前", joinDate: "2025-01-01", weakCategories: [] },
+        { name: "全栈通关大师", avatar: "通关", role: "学员", nodesMastered: 41, totalNodes: 41, exercisesPassed: 87, chatCount: 186, lastActive: "12分钟前", joinDate: "2026-07-05", weakCategories: [] },
+        { name: "半程探索者", avatar: "半程", role: "学员", nodesMastered: 20, totalNodes: 41, exercisesPassed: 45, chatCount: 98, lastActive: "15分钟前", joinDate: "2026-07-05", weakCategories: ["并发与操作系统", "网络编程服务"] },
+        { name: "Kleinle", avatar: "Kl", role: "管理员", nodesMastered: 0, totalNodes: 41, exercisesPassed: 0, chatCount: 123, lastActive: "18分钟前", joinDate: "2026-07-05", weakCategories: [] },
         ...VIRTUAL_STUDENTS,
       ];
       demoAccounts.sort((a, b) => b.exercisesPassed - a.exercisesPassed);
