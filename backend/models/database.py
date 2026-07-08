@@ -37,6 +37,19 @@ class Agent(Base):
     conversations = relationship("Conversation", back_populates="agent")
 
 
+class KnowledgeBase(Base):
+    __tablename__ = "knowledge_bases"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(100), nullable=False)
+    description = Column(Text, nullable=True)
+    owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    documents = relationship("Document", back_populates="knowledge_base", cascade="all, delete-orphan")
+    nodes = relationship("KnowledgeNode", back_populates="knowledge_base", cascade="all, delete-orphan")
+
+
 class Document(Base):
     __tablename__ = "documents"
 
@@ -49,8 +62,10 @@ class Document(Base):
     owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)  # 文档所有者
     visibility = Column(String(20), default="private")  # private, shared
     is_active = Column(Integer, default=1)  # 1: 启用（用户可见，参与检索）, 0: 禁用（仅管理员可见）
+    knowledge_base_id = Column(UUID(as_uuid=True), ForeignKey("knowledge_bases.id", ondelete="SET NULL"), nullable=True)
 
     chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
+    knowledge_base = relationship("KnowledgeBase", back_populates="documents")
 
 
 class DocumentChunk(Base):
@@ -143,10 +158,12 @@ class KnowledgeNode(Base):
     pagerank_weight = Column(Float, default=1.0)
     source = Column(String(30), default="extraction")  # learning_path（学习路线种子节点）| extraction（文档自动提取）
     document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True)
+    knowledge_base_id = Column(UUID(as_uuid=True), ForeignKey("knowledge_bases.id", ondelete="SET NULL"), nullable=True)
 
     user_states = relationship("UserKnowledgeState", back_populates="node", cascade="all, delete-orphan")
     labs = relationship("Lab", back_populates="node")
     document = relationship("Document")
+    knowledge_base = relationship("KnowledgeBase", back_populates="nodes")
 
 
 class KnowledgeRelation(Base):

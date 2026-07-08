@@ -175,3 +175,8 @@ If these files are added later, merge their requirements into this AGENTS.md and
 - `CLAUDE.md` also contains stack/version drift (for example Next.js/React versions) compared to `frontend/package.json`.
 - Always verify executable commands against real config files before running or documenting.
 - Prefer evidence from package/config files over prose docs when they conflict.
+
+## 14) Core Behavioral Guardrails (Strict Memory)
+
+- **Strict Emoji Ban**: Do not output any Emojis or decorative icons in code comments, commit logs, git descriptions, pull requests, tool explanations, or chat responses.
+- **No Redundant Repetitive Output**: Never output strings like "Let's do it!", "No emojis. Only clean code.", or any other repetitive sequence of emojis or redundant filler phrases during tool execution descriptions or planning. Keep descriptions minimal, highly specific, and purely functional.

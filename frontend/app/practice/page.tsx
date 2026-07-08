@@ -268,32 +268,33 @@ function PracticeContent() {
   };
 
   // 联动收藏与取消收藏
-  const handleToggleCollect = async () => {
-    if (!selectedLab) return;
+  const handleToggleCollect = async (targetLab?: any) => {
+    const labToCollect = targetLab || selectedLab;
+    if (!labToCollect) return;
     try {
-      if (isCollected) {
-        // 如果是收藏夹模式，主 ID 就是收藏记录的 ID，否则需要去后端查或利用 title 匹配
-        let colId = selectedLab.id;
-        if (exerciseMode !== "collection") {
-          const list = await collectionApi.listCollections();
-          const match = list.find((c: any) => c.title === selectedLab.title);
-          if (match) colId = match.id;
+      const colList = await collectionApi.listCollections();
+      const match = colList.find((c: any) => c.title === labToCollect.title);
+      
+      if (match) {
+        await collectionApi.deleteCollection(match.id);
+        if (labToCollect.id === selectedLab?.id) {
+          setIsCollected(false);
         }
-        await collectionApi.deleteCollection(colId);
-        setIsCollected(false);
         if (exerciseMode === "collection") {
           fetchCollections();
         }
       } else {
         await collectionApi.collectExercise({
-          node_id: selectedLab.node_id || undefined,
-          title: selectedLab.title,
-          exercise_type: selectedLab.lab_type,
-          content: selectedLab.test_cases,
-          answer: selectedLab.answer || selectedLab.test_cases?.pairs || selectedLab.test_cases?.correct_order || selectedLab.test_cases?.blanks || {},
-          explanation: selectedLab.detailed_explanation
+          node_id: labToCollect.node_id || undefined,
+          title: labToCollect.title,
+          exercise_type: labToCollect.lab_type,
+          content: labToCollect.test_cases,
+          answer: labToCollect.answer || labToCollect.test_cases?.pairs || labToCollect.test_cases?.correct_order || labToCollect.test_cases?.blanks || {},
+          explanation: labToCollect.detailed_explanation
         });
-        setIsCollected(true);
+        if (labToCollect.id === selectedLab?.id) {
+          setIsCollected(true);
+        }
       }
     } catch (error) {
       console.error("Toggle collect failed:", error);
@@ -302,17 +303,20 @@ function PracticeContent() {
 
   // Renderer 答题提交的回调
   const handleRendererSubmit = async (result: { score: number; passed: boolean; answers: any }) => {
-    // 如果是内置 Labs，则需要提交通关数据到后端记录 submission 并联动更新点亮/熟练度
+    // 如果是内置 Labs，则需要并行提交通关数据到后端记录 submission 并联动更新点亮/熟练度
     if (exerciseMode === "system") {
       try {
-        await labApi.submitLab(
-          selectedLab.id,
-          JSON.stringify(result.answers),
-          undefined,
-          undefined,
-          undefined,
-          result.answers
-        );
+        const promises = Object.entries(result.answers).map(([labId, singleAnswer]) => {
+          return labApi.submitLab(
+            labId,
+            JSON.stringify(singleAnswer),
+            undefined,
+            undefined,
+            undefined,
+            singleAnswer
+          );
+        });
+        await Promise.all(promises);
       } catch (e) {
         console.error("Failed to upload submission to system:", e);
       }
@@ -320,25 +324,28 @@ function PracticeContent() {
     // 如果是动态生成题目，则联动 evaluate-dynamic 进行点亮
     else if (exerciseMode === "dynamic" && result.passed) {
       try {
-        await fetch(`${baseUrl || "http://localhost:8000"}/api/labs/evaluate-dynamic`, {
-          method: "POST",
-          headers: getAuthHeaders(),
-          body: JSON.stringify({
-            exercise: {
-              title: selectedLab.title,
-              description: selectedLab.description,
-              starter_code: selectedLab.starter_code,
-              test_cases: selectedLab.test_cases,
-              lab_type: selectedLab.lab_type,
-            },
-            code: "",
-            answers: result.answers,
-            node_id: selectedLab.node_id || undefined,
-            api_key: apiKey,
-            model,
-            base_url: baseUrl,
-          }),
+        const promises = Object.entries(result.answers).map(([_, singleAnswer]) => {
+          return fetch(`${baseUrl || "http://localhost:8000"}/api/labs/evaluate-dynamic`, {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: JSON.stringify({
+              exercise: {
+                title: selectedLab.title,
+                description: selectedLab.description,
+                starter_code: selectedLab.starter_code,
+                test_cases: selectedLab.test_cases,
+                lab_type: selectedLab.lab_type,
+              },
+              code: "",
+              answers: singleAnswer,
+              node_id: selectedLab.node_id || undefined,
+              api_key: apiKey,
+              model,
+              base_url: baseUrl,
+            }),
+          });
         });
+        await Promise.all(promises);
       } catch (e) {
         console.error("Failed to submit dynamic progress:", e);
       }
@@ -606,7 +613,7 @@ function PracticeContent() {
                     </div>
                   </div>
 
-                  {handleToggleCollect && exerciseMode !== "system" && (
+                  {handleToggleCollect && (
                     <button
                       onClick={handleToggleCollect}
                       className={cn(
@@ -622,14 +629,54 @@ function PracticeContent() {
                 </div>
 
                 {/* Code Editor */}
-                <div className="flex-1 min-h-[300px]">
-                  <textarea
-                    value={code}
-                    onChange={(e) => setCode(e.target.value)}
-                    className="w-full h-full p-4 font-mono text-xs bg-slate-955 text-slate-100 rounded-xl border border-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none leading-relaxed"
-                    placeholder="在此编写 Python 代码..."
-                    spellCheck={false}
-                  />
+                <div className="flex-1 min-h-[350px] bg-[#1e1e1e] border border-[#2d3139] rounded-2xl flex flex-col overflow-hidden shadow-2xl focus-within:border-indigo-500/80 focus-within:ring-2 focus-within:ring-indigo-500/10 transition-all duration-200">
+                  {/* IDE Window Header */}
+                  <div className="bg-[#252526] border-b border-[#2d2d2d] px-4 py-2 flex items-center justify-between select-none">
+                    {/* Left Window Control Dots */}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#ff5f56]" />
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#ffbd2e]" />
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#27c93f]" />
+                    </div>
+                    
+                    {/* Middle File Tab */}
+                    <div className="flex items-center gap-2 bg-[#1e1e1e] border-t border-x border-[#2d2d2d] px-4 py-1.5 text-[10px] text-slate-300 rounded-t-lg -mb-[9px] z-10 font-mono font-medium">
+                      <span className="text-indigo-400 font-bold font-mono">Py</span>
+                      <span>solution.py</span>
+                    </div>
+
+                    {/* Right IDE Status */}
+                    <div className="text-[9px] text-slate-500 font-mono font-medium">
+                      UTF-8 | LF | Python 3.11
+                    </div>
+                  </div>
+
+                  {/* Editor Content Area */}
+                  <div className="flex-1 flex overflow-hidden relative">
+                    {/* Left Line Numbers Rail */}
+                    <div className="w-10 bg-[#1e1e1e] text-[#858585] text-right pr-2 py-4 font-mono text-xs select-none border-r border-[#2d2d2d] leading-6">
+                      {(() => {
+                        const lineCount = Math.max((code || "").split("\n").length, 12);
+                        return Array.from({ length: lineCount }).map((_, i) => (
+                          <div key={i} className="h-6">
+                            {i + 1}
+                          </div>
+                        ));
+                      })()}
+                    </div>
+
+                    {/* Right Code Input Area */}
+                    <textarea
+                      value={code}
+                      onChange={(e) => setCode(e.target.value)}
+                      className="flex-1 p-4 font-mono text-xs bg-[#1e1e1e] text-[#f8f8f2] focus:outline-none resize-none leading-6 placeholder:text-slate-650 caret-indigo-400 antialiased"
+                      placeholder="def solution():\n    # 在此编写 Python 代码..."
+                      spellCheck={false}
+                      style={{
+                        lineHeight: "24px",
+                      }}
+                    />
+                  </div>
                 </div>
 
                 {/* Submit Button */}
@@ -718,12 +765,19 @@ function PracticeContent() {
               </div>
             ) : (
               /* Other Interactive Question Types */
-              <ExerciseRenderer
-                lab={selectedLab}
-                onSubmit={handleRendererSubmit}
-                isCollected={isCollected}
-                onToggleCollect={handleToggleCollect}
-              />
+              (() => {
+                // 在 system 模式下，需要用带详情的 selectedLab 替换列表中对应的元素，防止列表接口字段丢失
+                const displayLabs = labs.map((l: any) => (selectedLab && l.id === selectedLab.id) ? selectedLab : l);
+                return (
+                  <ExerciseRenderer
+                    labs={exerciseMode === "system" ? displayLabs : selectedLab ? [selectedLab] : []}
+                    activeLabId={selectedLab?.id}
+                    onSubmit={handleRendererSubmit}
+                    isCollected={isCollected}
+                    onToggleCollect={handleToggleCollect}
+                  />
+                );
+              })()
             )}
           </div>
         </div>

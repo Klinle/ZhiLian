@@ -1,6 +1,7 @@
 version: '3.8'
 
 services:
+  # 1. pgvector 向量关系数据库
   postgres:
     image: pgvector/pgvector:pg16
     container_name: knowledge-assistant-db
@@ -17,6 +18,39 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  # 2. 后端 FastAPI 服务
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: knowledge-assistant-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/knowledge_assistant
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL}
+      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend/knowledge_base:/app/knowledge_base
+      - ./backend/uploads:/app/uploads
+
+  # 3. 前端 Next.js 生产服务
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=http://localhost:8000
+    container_name: knowledge-assistant-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
 
 volumes:
   postgres_data:

@@ -162,6 +162,14 @@ export const adminApi = {
     if (!response.ok) throw new Error("获取统计数据失败");
     return response.json();
   },
+  getAiEvaluation: async () => {
+    const response = await fetch(`${API_BASE_URL}/api/admin/stats/ai-evaluation`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) throw new Error("获取 AI 运营诊断失败");
+    return response.json();
+  },
   listUsers: async () => {
     const response = await fetch(`${API_BASE_URL}/api/admin/users`, {
       headers: getAuthHeaders(),
@@ -209,9 +217,10 @@ export const adminApi = {
     return response.json();
   },
   // 文档上传（管理员专用，固定使用本地嵌入模型）
-  uploadDocument: async (file: File) => {
+  uploadDocument: async (file: File, knowledgeBaseId?: string) => {
     const formData = new FormData();
     formData.append("file", file);
+    if (knowledgeBaseId) formData.append("knowledge_base_id", knowledgeBaseId);
     const params = new URLSearchParams();
     params.append("use_local_embedding", "true");
     const response = await fetch(
@@ -333,6 +342,15 @@ export const adminApi = {
     if (!response.ok) throw new Error("删除题目失败");
     return response.json();
   },
+  batchDeleteLabs: async (labIds: string[]) => {
+    const response = await fetch(`${API_BASE_URL}/api/admin/labs/batch-delete`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ ids: labIds }),
+    });
+    if (!response.ok) throw new Error("批量删除题目失败");
+    return response.json();
+  },
   generateBatchLabs: async (params: {
     node_id: string;
     exercise_type: string;
@@ -418,9 +436,9 @@ export const profileApi = {
 };
 
 export const knowledgeApi = {
-  getGraph: async (documentId?: string) => {
-    const url = documentId 
-      ? `${API_BASE_URL}/api/knowledge/graph?document_id=${documentId}`
+  getGraph: async (knowledgeBaseId?: string) => {
+    const url = knowledgeBaseId 
+      ? `${API_BASE_URL}/api/knowledge/graph?knowledge_base_id=${knowledgeBaseId}`
       : `${API_BASE_URL}/api/knowledge/graph`;
     const response = await fetch(url, {
       headers: getAuthHeaders(),
@@ -428,11 +446,20 @@ export const knowledgeApi = {
     if (!response.ok) throw new Error("获取知识图谱失败");
     return response.json();
   },
-  listUserDocuments: async (scope: string = "all") => {
-    const response = await fetch(`${API_BASE_URL}/api/documents/?scope=${scope}`, {
+  listKnowledgeBases: async () => {
+    const response = await fetch(`${API_BASE_URL}/api/documents/kb`, {
       headers: getAuthHeaders(),
     });
-    if (!response.ok) throw new Error("获取学习文档列表失败");
+    if (!response.ok) throw new Error("获取知识库分类列表失败");
+    return response.json();
+  },
+  createKnowledgeBase: async (name: string, description: string = "") => {
+    const response = await fetch(`${API_BASE_URL}/api/documents/kb`, {
+      method: "POST",
+      headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ name, description }),
+    });
+    if (!response.ok) throw new Error("创建分类知识库失败");
     return response.json();
   },
   getNodeLabs: async (nodeId: string) => {
@@ -508,8 +535,8 @@ export const collectionApi = {
     node_id?: string;
     title: string;
     exercise_type: string;
-    content: any;
-    answer: any;
+    content: unknown;
+    answer: unknown;
     explanation?: string;
   }) => {
     const response = await fetch(`${API_BASE_URL}/api/collections`, {

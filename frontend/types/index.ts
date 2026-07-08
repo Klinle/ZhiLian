@@ -27,6 +27,43 @@ export interface Lab {
   difficulty?: string;
   lab_type?: string;
   node_id?: string;
+  node_name?: string;
+  node_category?: string;
+  created_at?: string;
+  has_explanation?: boolean;
+  detailed_explanation?: string;
+}
+
+// 批量出题参数
+export interface BatchGenerateParams {
+  node_id: string;
+  exercise_type: string;
+  difficulty: string;
+  count: number;
+  api_key?: string;
+  model?: string;
+  base_url?: string;
+}
+
+// AI 生成的题目（编辑态，test_cases 为 JSON 字符串）
+export interface GeneratedLab {
+  localId: number;
+  title: string;
+  description: string;
+  starter_code: string;
+  test_cases: string;
+  difficulty: string;
+  lab_type: string;
+  detailed_explanation: string;
+  node_id: string;
+}
+
+// 题库筛选参数
+export interface LabFilterParams {
+  lab_type?: string;
+  difficulty?: string;
+  node_id?: string;
+  search?: string;
 }
 
 export interface Submission {
@@ -48,6 +85,30 @@ export interface KnowledgeNode {
   is_lighted: boolean;
   proficiency: number;
   study_duration: number;
+  chunk_count: number;
+  lab_count: number;
+  lab_types: Record<string, number>;
+}
+
+// 知识节点上下文预览
+export interface NodeContextPreview {
+  chunk_count: number;
+  total_chars: number;
+  preview_chunks: {
+    content: string;
+    element_type: string | null;
+    page_number: number | null;
+  }[];
+}
+
+// AI 批量生成结果
+export interface GenerateBatchResult {
+  labs: Record<string, unknown>[];
+  context_info?: {
+    node_name: string;
+    chunk_count: number;
+    context_length: number;
+  };
 }
 
 export interface RecommendedNode {

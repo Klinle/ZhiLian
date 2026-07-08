@@ -2,14 +2,14 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, and_
 from collections import defaultdict
 from typing import Optional
 from uuid import UUID, uuid4
 
 from core.database import get_session
 from core.dependencies import get_current_user
-from models.database import User, KnowledgeNode, UserKnowledgeState, DocumentChunk
+from models.database import User, KnowledgeNode, UserKnowledgeState, DocumentChunk, Document
 from models.schemas import (
     LabSubmitRequest,
     GenerateExerciseRequest,
@@ -161,12 +161,12 @@ async def generate_exercise(
 
     # 薄弱领域（覆盖率 < 20%）
     category_mapping = {
-        "programming": "终端游戏与工具",
-        "dsa": "益智游戏数据",
-        "organization": "街机游戏设计",
-        "os": "实时动作并发",
-        "network": "联机对战服务",
-        "database": "数据与工程",
+        "programming": "编程开发基础",
+        "dsa": "数据结构与高级特性",
+        "organization": "面向对象与系统架构",
+        "os": "并发编程与操作系统",
+        "network": "网络编程与联机服务",
+        "database": "数据工程与持久化",
     }
     weak_domains: list[str] = []
     for eng_cat, chn_name in category_mapping.items():
@@ -188,9 +188,16 @@ async def generate_exercise(
         profile_lines.append(f"- 全局薄弱领域: {', '.join(weak_domains)}")
     profile_context = "\n".join(profile_lines)
 
-    # 4. 获取与该节点关联的电子书分块参考资料（RAG 检索）
+    # 4. 获取与该节点关联的电子书分块参考资料（RAG 检索：局限于该知识库下所有文档）
     stmt_chunks = select(DocumentChunk).where(
-        DocumentChunk.node_id == node_uuid
+        and_(
+            DocumentChunk.node_id == node_uuid,
+            DocumentChunk.document_id.in_(
+                select(Document.id).where(
+                    Document.knowledge_base_id == node.knowledge_base_id
+                )
+            )
+        )
     ).limit(3)
     result_chunks = await session.execute(stmt_chunks)
     node_chunks = result_chunks.scalars().all()

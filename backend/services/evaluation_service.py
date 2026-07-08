@@ -269,7 +269,7 @@ class EvaluationService:
 ```json
 {{
     "title": "练习标题",
-    "description": "一句话简介",
+    "description": "针对本次选择题整体考查情境的详细具体题干说明与任务引导（例如：本练习考查 NumPy 数组广播机制的边界条件及异常处理）",
     "detailed_explanation": "关于该题涉及知识点的通俗化一句话口诀和游戏场景类比总解析",
     "test_cases": {{
         "questions": [
@@ -304,7 +304,7 @@ class EvaluationService:
 ```json
 {{
     "title": "连线匹配练习标题",
-    "description": "连线匹配：请将 Python 语言概念与其最贴切的游戏/生活类比匹配起来。",
+    "description": "针对本次连线题所考查核心概念的详细引导题干（例如：请将 asyncio 异步编程中事件循环、协程、Future对象等核心机制与其最贴切的厨房做菜生活类比连接配对）",
     "detailed_explanation": "总解析：例如 GIL 全局锁像单车道限制...",
     "test_cases": {{
         "left": ["概念1", "概念2", "概念3", "概念4"],
@@ -339,7 +339,7 @@ class EvaluationService:
 ```json
 {{
     "title": "流程排序练习标题",
-    "description": "步骤排序：请将打乱的 Python 步骤或游戏设计流程调整为正确的先后逻辑顺序。",
+    "description": "针对本次排序题的详细具体重构任务与题干说明（例如：请根据 Python 装饰器的加载与调用次序，将打乱的内层 wrapper 嵌套执行步骤重组为正确的业务逻辑链）",
     "detailed_explanation": "总解析：解释为什么要按照这个顺序进行...",
     "test_cases": {{
         "steps": ["打乱步骤1", "打乱步骤2", "打乱步骤3", "打乱步骤4"],
@@ -368,7 +368,7 @@ class EvaluationService:
 ```json
 {{
     "title": "概念填空练习标题",
-    "description": "概念填空：请在填空输入框中填入正确的关键字。",
+    "description": "针对本次填空题正文段落涉及背景的具体引导题干（例如：请根据 Python 垃圾回收引用计数与分代收集算法的工作机制，在下方段落空白处填入正确的术语）",
     "detailed_explanation": "填空总解析...",
     "test_cases": {{
         "text": "栈是一种限定在___进行插入的操作，特点是___进___出。",

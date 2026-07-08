@@ -17,7 +17,7 @@ import {
   User,
   LogOut,
   GraduationCap,
-  Award,
+  Library,
   Bot,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -109,8 +109,8 @@ export default function AdminLayout({ children, activePath }: AdminLayoutProps) 
       path: "/admin/students",
     },
     {
-      title: "实验管理",
-      icon: Award,
+      title: "题库管理",
+      icon: Library,
       path: "/admin/labs",
     },
     {

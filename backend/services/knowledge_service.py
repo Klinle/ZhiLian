@@ -20,27 +20,27 @@ class KnowledgeService:
     """知识图谱数据组装与点亮逻辑"""
 
     async def get_graph_data(
-        self, session: AsyncSession, user_id: UUID, document_id: Optional[UUID] = None
+        self, session: AsyncSession, user_id: UUID, knowledge_base_id: Optional[UUID] = None
     ) -> dict:
         """返回学习路线 nodes + relations + 当前用户 UserKnowledgeState
 
         仅返回 source='learning_path' 的种子节点（对应 docs/六大数据 目录结构），
-        支持根据 document_id 过滤某本电子书专属的图谱（为 None 则代表系统内置图谱）。
+        支持根据 knowledge_base_id 过滤某个知识库专属的图谱（为 None 则代表系统内置图谱）。
         """
 
-        # 1. 获取学习路线知识节点（排除文档自动提取的 extraction 节点，并根据书籍 ID 过滤隔离）
-        if document_id:
+        # 1. 获取学习路线知识节点（排除文档自动提取的 extraction 节点，并根据知识库 ID 过滤隔离）
+        if knowledge_base_id:
             stmt_nodes = select(KnowledgeNode).where(
                 and_(
                     KnowledgeNode.source == "learning_path",
-                    KnowledgeNode.document_id == document_id
+                    KnowledgeNode.knowledge_base_id == knowledge_base_id
                 )
             )
         else:
             stmt_nodes = select(KnowledgeNode).where(
                 and_(
                     KnowledgeNode.source == "learning_path",
-                    KnowledgeNode.document_id.is_(None)
+                    KnowledgeNode.knowledge_base_id.is_(None)
                 )
             )
         result_nodes = await session.execute(stmt_nodes)

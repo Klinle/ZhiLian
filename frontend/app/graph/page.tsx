@@ -1,25 +1,15 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import {
-  MessageSquare,
-  BookOpen,
-  Brain,
-  Grid3X3,
-  Shield,
-  Activity,
-  Network,
-  Award,
   Sparkles,
   RefreshCw,
   Info,
   Loader2,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { API_BASE_URL, getAuthHeaders, knowledgeApi } from "@/lib/api";
+import { knowledgeApi } from "@/lib/api";
 import UserLayout from "@/components/user-layout";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
@@ -63,7 +53,7 @@ interface RecommendedNode {
   reason: string;
 }
 
-// Category color mapping
+// 分类颜色映射
 const CATEGORY_COLORS: Record<string, string> = {
   programming: "#3b82f6",
   dsa: "#ef4444",
@@ -79,8 +69,6 @@ export default function GraphPage() {
   const [mounted, setMounted] = useState(false);
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
-  const [userRole, setUserRole] = useState<string>("");
   const [recommendations, setRecommendations] = useState<RecommendedNode[]>([]);
   const [recLoading, setRecLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -90,8 +78,6 @@ export default function GraphPage() {
       const token = localStorage.getItem("cognilink_token");
       if (!token) {
         router.push("/login");
-      } else {
-        setUserRole(localStorage.getItem("cognilink_user_role") || "student");
       }
     }
   }, [router]);
@@ -130,68 +116,6 @@ export default function GraphPage() {
     return () => clearTimeout(timer);
   }, []);
 
-  const handleToggleNode = useCallback(
-    async (nodeId: string) => {
-      try {
-        const result = await knowledgeApi.toggleNodeLight(nodeId);
-        // Update local state
-        setGraphData((prev) => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            nodes: prev.nodes.map((n) =>
-              n.id === nodeId
-                ? {
-                    ...n,
-                    is_lighted: result.is_lighted,
-                    proficiency: result.proficiency,
-                  }
-                : n
-            ),
-            stats: {
-              ...prev.stats,
-              lighted_nodes: prev.nodes.filter(
-                (n, _idx) =>
-                  n.id === nodeId ? result.is_lighted : n.is_lighted
-              ).length,
-            },
-          };
-        });
-      } catch (error) {
-        console.error("Failed to toggle node:", error);
-      }
-    },
-    []
-  );
-
-  const handleLightAll = useCallback(async () => {
-    if (!graphData) return;
-    // Light all unlighted nodes
-    const unlighted = graphData.nodes.filter((n) => !n.is_lighted);
-    for (const node of unlighted) {
-      try {
-        await knowledgeApi.toggleNodeLight(node.id, true);
-      } catch {
-        // continue
-      }
-    }
-    await fetchGraphData();
-  }, [graphData, fetchGraphData]);
-
-  const handleReset = useCallback(async () => {
-    if (!graphData) return;
-    // Unlight all nodes
-    const lighted = graphData.nodes.filter((n) => n.is_lighted);
-    for (const node of lighted) {
-      try {
-        await knowledgeApi.toggleNodeLight(node.id, false);
-      } catch {
-        // continue
-      }
-    }
-    await fetchGraphData();
-  }, [graphData, fetchGraphData]);
-
   const handleRefreshWeights = useCallback(async () => {
     try {
       setRefreshing(true);
@@ -205,14 +129,10 @@ export default function GraphPage() {
     }
   }, [fetchGraphData, fetchRecommendations]);
 
-  // ECharts click event handler
+  // ECharts 点击事件 — 跳转练习页
   const onChartClick = (params: { dataType: string; data: { nodeId?: string } }) => {
     if (params.dataType === "node" && params.data?.nodeId) {
-      const node = graphData?.nodes.find((n) => n.id === params.data.nodeId);
-      if (node) {
-        setSelectedNode(node);
-        handleToggleNode(node.id);
-      }
+      router.push(`/practice?nodeId=${params.data.nodeId}`);
     }
   };
 
@@ -220,11 +140,10 @@ export default function GraphPage() {
     click: onChartClick,
   };
 
-  // Build ECharts data from graphData
+  // 构建 ECharts 数据
   const nodes = graphData?.nodes || [];
   const relations = graphData?.relations || [];
 
-  // Create id->name mapping for links
   const idToName: Record<string, string> = {};
   nodes.forEach((n) => {
     idToName[n.id] = n.name;
@@ -281,7 +200,7 @@ export default function GraphPage() {
         if (params.dataType === "node") {
           const node = nodes.find((n) => n.name === params.name);
           if (node) {
-            return `${node.name}<br/>分类: ${node.category}<br/>状态: <span style="color:${node.is_lighted ? "#22c55e" : "#ef4444"}">${node.is_lighted ? "● 已点亮" : "○ 未学习"}</span><br/>熟练度: ${Math.round(node.proficiency * 100)}%`;
+            return `${node.name}<br/>分类: ${node.category}<br/>状态: <span style="color:${node.is_lighted ? "#22c55e" : "#ef4444"}">${node.is_lighted ? "● 已点亮" : "○ 未学习"}</span><br/>熟练度: ${Math.round(node.proficiency * 100)}%<br/><span style="color:#8b5cf6">点击进入练习</span>`;
           }
           return params.name;
         }
@@ -307,7 +226,7 @@ export default function GraphPage() {
           gravity: 0.1,
         },
         lineStyle: {
-          color: "rgba(99, 102, 241, 0.15)",
+          color: "rgba(99, 102, 231, 0.15)",
           width: 1.5,
           curveness: 0.1,
         },
@@ -328,23 +247,20 @@ export default function GraphPage() {
 
   return (
     <UserLayout activePath="/graph">
-      {/* Main Panel */}
       <div className="flex-1 overflow-hidden bg-white dark:bg-[#0c0f1d] flex flex-col">
 
-        {/* Header Title */}
         <div className="p-8 pb-4 shrink-0">
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">知识图谱网络</h1>
-          <p className="text-sm text-slate-500 mt-1">这里展示了系统知识库关联图谱，会根据您的学习情况进行点亮。</p>
+          <p className="text-sm text-slate-500 mt-1">六大知识领域学习路线图，点击节点进入对应练习，通过答题点亮并解锁下一节点。</p>
         </div>
 
-        {/* Workspace Panels */}
         <div className="flex-1 flex flex-col lg:flex-row min-h-0 px-8 pb-8 gap-6">
 
-          {/* Graph View Card */}
+          {/* Graph View */}
           <div className="flex-1 bg-slate-50 dark:bg-[#121424] border border-slate-100 dark:border-[#1f233a] rounded-2xl p-6 relative flex flex-col min-h-0 shadow-inner">
             <div className="absolute top-4 right-4 z-10 flex items-center gap-1.5 text-[10px] text-slate-400 bg-white/80 dark:bg-slate-900/80 px-2 py-1 rounded border border-slate-100 dark:border-slate-800">
               <Info className="h-3.5 w-3.5 text-indigo-400" />
-              <span>提示：点击节点可点亮该知识点</span>
+              <span>提示：点击节点进入练习</span>
             </div>
 
             <div className="flex-1 min-h-[400px] relative">
@@ -365,7 +281,7 @@ export default function GraphPage() {
             </div>
           </div>
 
-          {/* Interactive Controller sidebar panel */}
+          {/* Sidebar */}
           <div className="w-full lg:w-80 bg-slate-50 dark:bg-[#121424] border border-slate-100 dark:border-[#1f233a] rounded-2xl p-6 flex flex-col gap-6 shrink-0 shadow-sm overflow-y-auto">
             <div>
               <h3 className="font-bold text-sm text-slate-850 dark:text-white">学习掌握进度</h3>
@@ -400,28 +316,6 @@ export default function GraphPage() {
               </div>
             )}
 
-            {/* Quick Actions */}
-            <div className="space-y-2 border-t border-slate-200 dark:border-slate-800/60 pt-4">
-              <h4 className="text-xs font-semibold text-slate-500 mb-2">快捷操作</h4>
-              <Button
-                onClick={handleLightAll}
-                disabled={loading}
-                className="w-full text-xs bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg h-9 font-medium"
-              >
-                <Sparkles className="h-3.5 w-3.5 mr-1.5" />
-                点亮全部知识点
-              </Button>
-              <Button
-                onClick={handleReset}
-                variant="outline"
-                disabled={loading}
-                className="w-full text-xs text-slate-600 dark:text-slate-300 border-slate-200 dark:border-[#2b2f4f] hover:bg-slate-100 dark:hover:bg-slate-800 h-9 font-medium"
-              >
-                <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
-                重置点亮状态
-              </Button>
-            </div>
-
             {/* Learning Path Recommendations */}
             <div className="space-y-2 border-t border-slate-200 dark:border-slate-800/60 pt-4">
               <div className="flex items-center justify-between mb-2">
@@ -451,7 +345,7 @@ export default function GraphPage() {
                     return (
                       <button
                         key={idx}
-                        onClick={() => router.push("/practice")}
+                        onClick={() => router.push(`/practice?nodeId=${rec.id}`)}
                         className="flex items-start gap-2 w-full p-2 rounded-lg text-left text-xs bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 hover:border-indigo-200 dark:hover:border-indigo-900 transition-colors"
                         title={rec.description}
                       >
@@ -472,7 +366,7 @@ export default function GraphPage() {
               )}
             </div>
 
-            {/* Nodes toggle checklist */}
+            {/* 节点清单 — 点击跳转练习 */}
             <div className="flex-1 overflow-y-auto min-h-[150px] border-t border-slate-200 dark:border-slate-800/60 pt-4">
               <h4 className="text-xs font-semibold text-slate-500 mb-2">知识节点清单</h4>
               <div className="space-y-1.5">
@@ -482,7 +376,7 @@ export default function GraphPage() {
                   return (
                     <button
                       key={idx}
-                      onClick={() => handleToggleNode(node.id)}
+                      onClick={() => router.push(`/practice?nodeId=${node.id}`)}
                       className={`flex items-center justify-between w-full px-2.5 py-1.5 rounded-lg text-left text-xs transition-colors border ${
                         isLighted
                           ? "bg-white dark:bg-slate-900 border-indigo-100 dark:border-indigo-950 text-slate-850 dark:text-white"

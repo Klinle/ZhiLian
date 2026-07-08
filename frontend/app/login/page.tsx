@@ -23,7 +23,7 @@ export default function LoginPage() {
       if (token) {
         // localStorage 有 token 但 cookie 可能被清除，同步设置 cookie 防止重定向循环
         document.cookie = `cognilink_token=${token}; path=/; max-age=${60 * 60 * 24 * 7}; samesite=lax`;
-        router.push("/chat");
+        router.push("/");
       }
     }
   }, [router]);
@@ -52,7 +52,7 @@ export default function LoginPage() {
       // 同步设置 cookie，供 middleware 认证使用
       document.cookie = `cognilink_token=${data.access_token}; path=/; max-age=${60 * 60 * 24 * 7}; samesite=lax`;
 
-      router.push("/chat");
+      router.push("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "操作失败");
     } finally {
@@ -71,7 +71,7 @@ export default function LoginPage() {
             CogniLink
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-            智能知识管理与学习助手
+            把枯燥的计算机知识，学得明明白白
           </p>
         </div>
 

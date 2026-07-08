@@ -8,9 +8,7 @@ import {
   ChevronDown,
   Bot,
   BookOpen,
-  Network,
-  Activity,
-  ShieldCheck,
+  Brain,
 } from "lucide-react";
 
 /** 工作流步骤状态 */
@@ -22,13 +20,11 @@ export interface WorkflowStep {
   data?: any;
 }
 
-/** 节点图标映射 */
+/** 节点图标映射 — 对应简化后的工作流（orchestrator → rag_bot → reviewer）*/
 const nodeIcons: Record<string, typeof Bot> = {
   orchestrator: Bot,
   rag_bot: BookOpen,
-  graph_bot: Network,
-  ops_bot: Activity,
-  reviewer: ShieldCheck,
+  reviewer: Brain,
 };
 
 /** 工作流进度面板 */

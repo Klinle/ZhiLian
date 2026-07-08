@@ -79,6 +79,11 @@ export default function AdminLabsPage() {
   const [showForm, setShowForm] = useState(false);
   const [editingLab, setEditingLab] = useState<Lab | null>(null);
 
+  // 批量选择与批量删除状态
+  const [selectedLabIds, setSelectedLabIds] = useState<string[]>([]);
+  // 未经过滤的总题数（用于防止筛选结果为空时整个操作栏消失）
+  const [totalCount, setTotalCount] = useState(0);
+
   // 筛选状态
   const [filterParams, setFilterParams] = useState<LabFilterParams>({});
   const [searchInput, setSearchInput] = useState("");
@@ -149,6 +154,11 @@ export default function AdminLabsPage() {
     try {
       const data = await adminApi.listLabs(params);
       setLabs(data);
+      // 如果没有筛选参数，更新 unfiltered 题库总题数
+      if (!params || (!params.lab_type && !params.difficulty && !params.search)) {
+        setTotalCount(data.length);
+      }
+      setSelectedLabIds([]); // 每次重载数据均清空选中缓存
     } catch (error) {
       console.error("Failed to fetch labs:", error);
     } finally {
@@ -346,6 +356,34 @@ export default function AdminLabsPage() {
     }
   };
 
+  const handleSelectLab = (labId: string) => {
+    setSelectedLabIds((prev) =>
+      prev.includes(labId) ? prev.filter((id) => id !== labId) : [...prev, labId]
+    );
+  };
+
+  const handleSelectAll = () => {
+    if (labs.length === 0) return;
+    if (selectedLabIds.length === labs.length) {
+      setSelectedLabIds([]);
+    } else {
+      setSelectedLabIds(labs.map((lab) => lab.id));
+    }
+  };
+
+  const handleBatchDelete = async () => {
+    if (selectedLabIds.length === 0) return;
+    if (!confirm(`确定要删除选中的 ${selectedLabIds.length} 道题目吗？`)) return;
+    try {
+      await adminApi.batchDeleteLabs(selectedLabIds);
+      setSelectedLabIds([]);
+      await fetchLabs({ ...filterParams, search: searchInput || undefined });
+    } catch (error) {
+      console.error("Failed to batch delete labs:", error);
+      alert("批量删除失败");
+    }
+  };
+
   // 打开批量生成模态框并获取节点列表
   const handleOpenBatchModal = () => {
     fetchNodes();
@@ -493,7 +531,7 @@ export default function AdminLabsPage() {
         </div>
 
         {/* 统计概览卡片 */}
-        {!loading && labs.length > 0 && (
+        {!loading && (totalCount > 0 || hasActiveFilter) && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div className="bg-white dark:bg-[#121424] border border-slate-200 dark:border-[#1f233a] rounded-xl p-4">
               <div className="flex items-center gap-2 text-xs text-slate-400 mb-1">
@@ -541,7 +579,7 @@ export default function AdminLabsPage() {
         )}
 
         {/* 筛选/搜索栏 */}
-        {!loading && labs.length > 0 && (
+        {!loading && (totalCount > 0 || hasActiveFilter) && (
           <div className="flex items-center gap-3 flex-wrap">
             <div className="relative flex-1 min-w-[200px] max-w-xs">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
@@ -583,6 +621,15 @@ export default function AdminLabsPage() {
                 重置
               </button>
             )}
+            {selectedLabIds.length > 0 && (
+              <button
+                onClick={handleBatchDelete}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-all shadow-sm ml-auto"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                批量删除 ({selectedLabIds.length} 项)
+              </button>
+            )}
           </div>
         )}
 
@@ -591,15 +638,30 @@ export default function AdminLabsPage() {
           <div className="flex items-center justify-center py-20">
             <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
           </div>
-        ) : labs.length === 0 ? (
+        ) : totalCount === 0 ? (
           <div className="text-center py-20 text-slate-400 text-sm">
             题库为空，请使用 AI 批量出题或手动录入
+          </div>
+        ) : labs.length === 0 ? (
+          <div className="text-center py-20 text-slate-400 text-sm">
+            未找到符合筛选条件的题目，建议{" "}
+            <button onClick={handleResetFilter} className="text-indigo-500 underline font-semibold">
+              重置筛选
+            </button>
           </div>
         ) : (
           <div className="bg-white dark:bg-[#121424] border border-slate-200 dark:border-[#1f233a] rounded-xl overflow-hidden">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-200 dark:border-[#1f233a] text-xs text-slate-400">
+                  <th className="px-4 py-3 font-medium w-10 text-left">
+                    <input
+                      type="checkbox"
+                      checked={labs.length > 0 && selectedLabIds.length === labs.length}
+                      onChange={handleSelectAll}
+                      className="rounded border-slate-300 dark:border-slate-800 text-indigo-650 focus:ring-indigo-500/20 w-3.5 h-3.5 cursor-pointer"
+                    />
+                  </th>
                   <th className="text-left px-4 py-3 font-medium">标题</th>
                   <th className="text-left px-4 py-3 font-medium">题型</th>
                   <th className="text-left px-4 py-3 font-medium">难度</th>
@@ -612,6 +674,14 @@ export default function AdminLabsPage() {
               <tbody>
                 {labs.map((lab) => (
                   <tr key={lab.id} className="border-b border-slate-100 dark:border-[#1f233a]/50 hover:bg-slate-50 dark:hover:bg-slate-800/30">
+                    <td className="px-4 py-3 w-10">
+                      <input
+                        type="checkbox"
+                        checked={selectedLabIds.includes(lab.id)}
+                        onChange={() => handleSelectLab(lab.id)}
+                        className="rounded border-slate-300 dark:border-slate-800 text-indigo-650 focus:ring-indigo-500/20 w-3.5 h-3.5 cursor-pointer"
+                      />
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <Award className="h-4 w-4 text-slate-400 shrink-0" />

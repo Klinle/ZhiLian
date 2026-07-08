@@ -26,9 +26,9 @@ export default function DashboardPage() {
   const [radar, setRadar] = useState<any>(null);
   const [recommends, setRecommends] = useState<RecommendedNode[]>([]);
   
-  // 书籍与课程切换
-  const [documents, setDocuments] = useState<any[]>([]);
-  const [activeDocId, setActiveDocId] = useState<string>("");
+  // 知识库分类切换
+  const [knowledgeBases, setKnowledgeBases] = useState<any[]>([]);
+  const [activeKbId, setActiveKbId] = useState<string>("");
 
   // 节点焦点聚焦
   const [selectedNode, setSelectedNode] = useState<KnowledgeNode | null>(null);
@@ -47,12 +47,12 @@ export default function DashboardPage() {
     }
   }, [router]);
 
-  // 并行获取首页所需的所有数据，支持传入书籍 ID 过滤
-  const fetchDashboardData = useCallback(async (isRefresh = false, docId = activeDocId) => {
+  // 并行获取首页所需的所有数据，支持传入知识库 ID 过滤
+  const fetchDashboardData = useCallback(async (isRefresh = false, kbId = activeKbId) => {
     try {
       if (!isRefresh) setLoading(true);
       const [graphData, statsData, radarData, recommendsData] = await Promise.all([
-        knowledgeApi.getGraph(docId || undefined),
+        knowledgeApi.getGraph(kbId || undefined),
         profileApi.getStats(),
         profileApi.getRadar(),
         knowledgeApi.recommendLearningPath(),
@@ -73,20 +73,19 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedNode, activeDocId]);
+  }, [selectedNode, activeKbId]);
 
   useEffect(() => {
     if (mounted) {
-      fetchDashboardData(false, activeDocId);
-      // 并行拉取书籍列表
-      knowledgeApi.listUserDocuments()
+      fetchDashboardData(false, activeKbId);
+      // 并行拉取分类知识库列表
+      knowledgeApi.listKnowledgeBases()
         .then((res) => {
-          const completedDocs = (res || []).filter((d: any) => d.status === "completed");
-          setDocuments(completedDocs);
+          setKnowledgeBases(res || []);
         })
-        .catch((err) => console.error("Failed to list docs:", err));
+        .catch((err) => console.error("Failed to list knowledge bases:", err));
     }
-  }, [mounted, activeDocId, fetchDashboardData]);
+  }, [mounted, activeKbId, fetchDashboardData]);
 
   // 蜂巢节点点击 — 直达练习页
   const handleNodeSelect = (node: KnowledgeNode) => {
@@ -138,18 +137,18 @@ export default function DashboardPage() {
               </p>
             </div>
             <div className="flex items-center gap-3">
-              {/* 书籍课程选择框 */}
+              {/* 知识库分类选择框 */}
               <div className="flex items-center gap-1.5">
                 <span className="text-xs text-gray-500 font-medium">当前学习:</span>
                 <select
-                  value={activeDocId}
-                  onChange={(e) => setActiveDocId(e.target.value)}
+                  value={activeKbId}
+                  onChange={(e) => setActiveKbId(e.target.value)}
                   className="px-3 py-1.5 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl text-xs font-semibold text-gray-700 dark:text-zinc-300 transition-colors shadow-sm outline-none cursor-pointer min-w-[200px]"
                 >
                   <option value="">🐍 Python 经典游戏实训大本营</option>
-                  {documents.map((doc) => (
-                    <option key={doc.id} value={doc.id}>
-                      📖 {doc.title}
+                  {knowledgeBases.map((kb) => (
+                    <option key={kb.id} value={kb.id}>
+                      📚 {kb.name}
                     </option>
                   ))}
                 </select>

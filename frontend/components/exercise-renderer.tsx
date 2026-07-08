@@ -1,9 +1,26 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { Check, X, Sparkles, Star, Brain, ArrowUp, ArrowDown, RefreshCw } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { 
+  Check, 
+  X, 
+  Sparkles, 
+  Star, 
+  Brain, 
+  ArrowUp, 
+  ArrowDown, 
+  RefreshCw,
+  ChevronLeft,
+  ChevronRight,
+  Trophy,
+  Award,
+  Loader2
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useChatAssistantStore } from "@/stores/chat-assistant";
+import { useSettingsStore } from "@/stores/settings";
+import { collectionApi } from "@/lib/api";
 
 interface LabData {
   id: string;
@@ -17,63 +34,201 @@ interface LabData {
   node_id?: string;
 }
 
+const getSafeTestCases = (card: LabData | undefined) => {
+  if (!card) return {};
+  if (typeof card.test_cases === "string") {
+    try {
+      return JSON.parse(card.test_cases);
+    } catch (e) {
+      console.error("Failed to parse test_cases:", e);
+      return {};
+    }
+  }
+  return card.test_cases || {};
+};
+
 interface ExerciseRendererProps {
-  lab: LabData;
+  labs: LabData[] | LabData; // 接收整套题目列表或单道题目
+  activeLabId?: string; // 初始定位的题目 ID
   onSubmit: (result: { score: number; passed: boolean; answers: any }) => Promise<void>;
   isSubmitting?: boolean;
-  isCollected?: boolean;
-  onToggleCollect?: () => Promise<void>;
+  onToggleCollect?: (targetLab?: any) => Promise<void>;
 }
 
 export default function ExerciseRenderer({
-  lab,
+  labs,
+  activeLabId,
   onSubmit,
   isSubmitting = false,
-  isCollected = false,
   onToggleCollect,
 }: ExerciseRendererProps) {
   const { openAssistant, setTriggerMessage } = useChatAssistantStore();
-  
-  // 答题状态
+  const { apiKeys, openaiApiKey, model, baseUrls, selectedAgentId } = useSettingsStore();
+
+  // 1. 扁平化题目池
+  const [cards, setCards] = useState<LabData[]>([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+
+  // 2. 状态管理
   const [status, setStatus] = useState<"answering" | "checked">("answering");
-  const [isCorrect, setIsCorrect] = useState<boolean>(false);
-  const [score, setScore] = useState<number>(0);
-  
-  // Quiz: 当前选择
+  const [reportCard, setReportCard] = useState<{
+    score: number;
+    passed: boolean;
+    passedCount: number;
+    details: any[];
+  } | null>(null);
+
+  // 3. 当前卡片的作答状态
   const [quizAnswers, setQuizAnswers] = useState<Record<string, number>>({});
-  
-  // Match: 连线匹配状态
   const [selectedLeft, setSelectedLeft] = useState<string | null>(null);
   const [matches, setMatches] = useState<Record<string, string>>({}); // leftKey -> rightValue
-  
-  // Arrange: 排序顺序
   const [arrangeSteps, setArrangeSteps] = useState<string[]>([]);
-  const [originalIndices, setOriginalIndices] = useState<number[]>([]); // 记录当前顺序对应原 steps 的索引
-
-  // Fill: 填空输入值
+  const [originalIndices, setOriginalIndices] = useState<number[]>([]);
   const [fillInputs, setFillInputs] = useState<string[]>([]);
 
-  // 重置作答状态
+  // 4. 使用 ref 记录所有题目的作答历史，避免切卡片丢失
+  const sessionAnswersRef = useRef<Record<string, {
+    quizAnswers: Record<string, number>;
+    matches: Record<string, string>;
+    originalIndices: number[];
+    fillInputs: string[];
+  }>>({});
+
+  // 5. AI 诊断评语状态
+  const [aiDiagnostic, setAiDiagnostic] = useState<string>("");
+  const [aiLoading, setAiLoading] = useState<boolean>(false);
+
+  // 6. 当前卡片的真实收藏状态与错题自动收藏设置
+  const [currentCollected, setCurrentCollected] = useState(false);
+  const [autoCollectWrong, setAutoCollectWrong] = useState(false);
+  const [modalCollectedIds, setModalCollectedIds] = useState<Record<string, boolean>>({});
+
+  const activeCard = cards[currentIndex];
+
+  // 动态感应当前卡片的真实收藏高亮状态
   useEffect(() => {
-    setStatus("answering");
-    setIsCorrect(false);
-    setScore(0);
-    setQuizAnswers({});
+    if (activeCard) {
+      collectionApi.checkIsCollected(activeCard.title)
+        .then((res) => setCurrentCollected(res.is_collected))
+        .catch(() => setCurrentCollected(false));
+    }
+  }, [activeCard]);
+
+  // 从本地 localStorage 中读取错题自动收藏的配置
+  useEffect(() => {
+    const saved = localStorage.getItem("practice_auto_collect_wrong");
+    if (saved === "true") {
+      setAutoCollectWrong(true);
+    }
+  }, []);
+
+  const handleAutoCollectWrongChange = (checked: boolean) => {
+    setAutoCollectWrong(checked);
+    localStorage.setItem("practice_auto_collect_wrong", String(checked));
+  };
+
+  // 用户点击当前卡片的收藏按钮
+  const handleToggleCollectCurrent = async (card: LabData) => {
+    if (onToggleCollect) {
+      await onToggleCollect(card);
+      try {
+        const res = await collectionApi.checkIsCollected(card.title);
+        setCurrentCollected(res.is_collected);
+      } catch (err) {
+        console.error("Failed to check collection status:", err);
+      }
+    }
+  };
+
+  const lastFingerprintRef = useRef<string>("");
+  const labsFingerprint = (Array.isArray(labs) ? labs.map(l => l?.id).join(",") : labs?.id || "") + `_active_${activeLabId || ""}`;
+
+  // 转换外部传入的 labs 为 cards 数组
+  useEffect(() => {
+    const list = Array.isArray(labs) ? labs : labs ? [labs] : [];
+    setCards(list);
+    
+    // 仅在题目序列或初始定位实际变化时重置作答进度
+    if (lastFingerprintRef.current !== labsFingerprint) {
+      lastFingerprintRef.current = labsFingerprint;
+      sessionAnswersRef.current = {};
+      setStatus("answering");
+      setReportCard(null);
+      setAiDiagnostic("");
+      
+      // 定位初始题目
+      let startIndex = 0;
+      if (activeLabId && list.length > 0) {
+        const foundIdx = list.findIndex(item => item.id === activeLabId);
+        if (foundIdx !== -1) {
+          startIndex = foundIdx;
+        }
+      }
+      setCurrentIndex(startIndex);
+      
+      // 初始化首个卡片
+      if (list[startIndex]) {
+        loadCardAnswers(list[startIndex]);
+      }
+    }
+  }, [labs, activeLabId, labsFingerprint]);
+
+  // 从 ref 缓存中载入特定卡片答案，若无则初始化
+  const loadCardAnswers = (card: LabData) => {
+    const saved = sessionAnswersRef.current[card.id] || {
+      quizAnswers: {},
+      matches: {},
+      originalIndices: [],
+      fillInputs: [],
+    };
+
+    setQuizAnswers(saved.quizAnswers);
+    setMatches(saved.matches);
     setSelectedLeft(null);
-    setMatches({});
-    
-    // 初始化排序题
-    if (lab.lab_type === "arrange" && lab.test_cases?.steps) {
-      const steps = [...lab.test_cases.steps];
-      setArrangeSteps(steps);
-      setOriginalIndices(steps.map((_, i) => i));
+
+    const testCases = getSafeTestCases(card);
+
+    if (card.lab_type === "arrange") {
+      const steps = [...(testCases?.steps || [])];
+      if (saved.originalIndices && saved.originalIndices.length === steps.length) {
+        setOriginalIndices(saved.originalIndices);
+        setArrangeSteps(saved.originalIndices.map(i => steps[i]));
+      } else {
+        setArrangeSteps(steps);
+        setOriginalIndices(steps.map((_, i) => i));
+      }
     }
-    
-    // 初始化填空题
-    if (lab.lab_type === "fill" && lab.test_cases?.blanks) {
-      setFillInputs(Array(lab.test_cases.blanks.length).fill(""));
+
+    if (card.lab_type === "fill") {
+      const blanks = testCases?.blanks || [];
+      if (saved.fillInputs && saved.fillInputs.length === blanks.length) {
+        setFillInputs(saved.fillInputs);
+      } else {
+        setFillInputs(Array(blanks.length).fill(""));
+      }
     }
-  }, [lab]);
+  };
+
+  // 保存当前作答到 ref 缓存
+  const saveCurrentCardAnswers = () => {
+    const curCard = cards[currentIndex];
+    if (curCard) {
+      sessionAnswersRef.current[curCard.id] = {
+        quizAnswers,
+        matches,
+        originalIndices,
+        fillInputs,
+      };
+    }
+  };
+
+  // 切题处理
+  const handleNavigate = (newIndex: number) => {
+    if (newIndex < 0 || newIndex >= cards.length) return;
+    saveCurrentCardAnswers();
+    setCurrentIndex(newIndex);
+    loadCardAnswers(cards[newIndex]);
+  };
 
   // 连线匹配点击
   const handleMatchClick = (side: "left" | "right", value: string) => {
@@ -82,7 +237,6 @@ export default function ExerciseRenderer({
     if (side === "left") {
       setSelectedLeft(value);
     } else if (side === "right" && selectedLeft) {
-      // 建立连线匹配
       setMatches((prev) => ({
         ...prev,
         [selectedLeft]: value,
@@ -101,7 +255,7 @@ export default function ExerciseRenderer({
     });
   };
 
-  // 排序上移下移
+  // 排序位置调整
   const handleMoveStep = (index: number, direction: "up" | "down") => {
     if (status === "checked") return;
     if (direction === "up" && index === 0) return;
@@ -126,402 +280,935 @@ export default function ExerciseRenderer({
     });
   };
 
-  // 检查答案
-  const handleCheckAnswers = async () => {
-    let earnedScore = 0;
-    let passed = false;
+  // 统一提交所有卡片的作答并评测
+  const handleCheckAllAnswers = async () => {
+    // 1. 先保存当前正在做题卡片的临时数据
+    saveCurrentCardAnswers();
 
-    if (lab.lab_type === "quiz") {
-      const questions = lab.test_cases.questions || [];
-      let correctCount = 0;
-      questions.forEach((q: any) => {
-        if (quizAnswers[q.id] === q.answer) {
-          correctCount++;
+    let totalScore = 0;
+    let passedCount = 0;
+    const detailedResults: any[] = [];
+
+    // 2. 循环计算每张题卡的对错
+    cards.forEach((card) => {
+      const ans = sessionAnswersRef.current[card.id] || {
+        quizAnswers: {},
+        matches: {},
+        originalIndices: [],
+        fillInputs: [],
+      };
+
+      const testCases = getSafeTestCases(card);
+      let cardScore = 0;
+      let cardPassed = false;
+
+      if (card.lab_type === "quiz") {
+        const questions = testCases.questions || [];
+        let correctCount = 0;
+        questions.forEach((q: any) => {
+          if (ans.quizAnswers[q.id] === q.answer) {
+            correctCount++;
+          }
+        });
+        cardScore = questions.length > 0 ? Math.round((correctCount / questions.length) * 100) : 0;
+        cardPassed = cardScore >= 60;
+      } 
+      else if (card.lab_type === "match") {
+        const pairs = testCases.pairs || {};
+        const totalPairs = Object.keys(pairs).length;
+        let correctPairs = 0;
+        Object.entries(pairs).forEach(([left, right]) => {
+          if (ans.matches[left] === right) {
+            correctPairs++;
+          }
+        });
+        cardScore = totalPairs > 0 ? Math.round((correctPairs / totalPairs) * 100) : 0;
+        cardPassed = cardScore === 100; // 连线必须完全正确
+      } 
+      else if (card.lab_type === "arrange") {
+        const correctOrder = testCases.correct_order || [];
+        const userIndices = ans.originalIndices || [];
+        const isExactlyCorrect = userIndices.length === correctOrder.length &&
+          userIndices.every((val, index) => val === correctOrder[index]);
+        cardScore = isExactlyCorrect ? 100 : 0;
+        cardPassed = isExactlyCorrect;
+      } 
+      else if (card.lab_type === "fill") {
+        const blanks = testCases.blanks || [];
+        let correctBlanks = 0;
+        blanks.forEach((correctVal: string, i: number) => {
+          const userVal = (ans.fillInputs[i] || "").trim().toLowerCase();
+          if (userVal === correctVal.trim().toLowerCase()) {
+            correctBlanks++;
+          }
+        });
+        cardScore = blanks.length > 0 ? Math.round((correctBlanks / blanks.length) * 100) : 0;
+        cardPassed = cardScore === 100;
+      }
+
+      totalScore += cardScore;
+      if (cardPassed) {
+        passedCount++;
+      }
+
+      detailedResults.push({
+        id: card.id,
+        title: card.title,
+        description: card.description,
+        lab_type: card.lab_type,
+        score: cardScore,
+        passed: cardPassed,
+        answers: ans,
+        test_cases: testCases,
+        detailed_explanation: card.detailed_explanation,
+        rawCard: card,
+      });
+    });
+
+    const finalScore = cards.length > 0 ? Math.round(totalScore / cards.length) : 0;
+    const finalPassed = finalScore >= 60;
+
+    const report = {
+      score: finalScore,
+      passed: finalPassed,
+      passedCount,
+      details: detailedResults,
+    };
+
+    // 错题自动静默收藏入库 (使用 Promise.all 等待完成，防止异步时序竞态导致 Modal 中星星状态不更新)
+    if (autoCollectWrong) {
+      const wrongDetails = detailedResults.filter(d => !d.passed);
+      const collectPromises = wrongDetails.map(async (d) => {
+        try {
+          const check = await collectionApi.checkIsCollected(d.title);
+          if (!check.is_collected) {
+            await collectionApi.collectExercise({
+              node_id: d.rawCard.node_id || undefined,
+              title: d.rawCard.title,
+              exercise_type: d.rawCard.lab_type,
+              content: d.rawCard.test_cases,
+              answer: d.rawCard.answer || d.rawCard.test_cases?.pairs || d.rawCard.test_cases?.correct_order || d.rawCard.test_cases?.blanks || {},
+              explanation: d.rawCard.detailed_explanation
+            });
+          }
+        } catch (err) {
+          console.error("Auto collect wrong question failed:", err);
         }
       });
-      earnedScore = questions.length > 0 ? Math.round((correctCount / questions.length) * 100) : 0;
-      passed = earnedScore >= 60;
-    } 
-    else if (lab.lab_type === "match") {
-      const pairs = lab.test_cases.pairs || {};
-      const totalPairs = Object.keys(pairs).length;
-      let correctPairs = 0;
-      
-      Object.entries(pairs).forEach(([left, right]) => {
-        if (matches[left] === right) {
-          correctPairs++;
-        }
-      });
-      earnedScore = totalPairs > 0 ? Math.round((correctPairs / totalPairs) * 100) : 0;
-      passed = earnedScore === 100; // 连线全部正确才算通关，增强严谨性
-    } 
-    else if (lab.lab_type === "arrange") {
-      const correctOrder = lab.test_cases.correct_order || [];
-      // 对比 originalIndices 是否完全契合 correctOrder
-      const isExactlyCorrect = originalIndices.length === correctOrder.length && 
-        originalIndices.every((val, index) => val === correctOrder[index]);
-      
-      earnedScore = isExactlyCorrect ? 100 : 0;
-      passed = isExactlyCorrect;
-    } 
-    else if (lab.lab_type === "fill") {
-      const blanks = lab.test_cases.blanks || [];
-      let correctBlanks = 0;
-      
-      blanks.forEach((correctVal: string, i: number) => {
-        const userVal = (fillInputs[i] || "").trim().toLowerCase();
-        if (userVal === correctVal.trim().toLowerCase()) {
-          correctBlanks++;
-        }
-      });
-      earnedScore = blanks.length > 0 ? Math.round((correctBlanks / blanks.length) * 100) : 0;
-      passed = earnedScore === 100; // 填空全部填对才算通过
+      await Promise.all(collectPromises);
     }
 
-    setScore(earnedScore);
-    setIsCorrect(passed);
+    setReportCard(report);
     setStatus("checked");
+    setAiDiagnostic("");
 
-    // 触发父级回调（更新进度、点亮节点等）
+    // 调用父级提交回调（同步数据点亮节点等）
     await onSubmit({
-      score: earnedScore,
-      passed,
-      answers: {
-        quizAnswers,
-        matches,
-        originalIndices,
-        fillInputs,
-      },
+      score: finalScore,
+      passed: finalPassed,
+      answers: sessionAnswersRef.current,
     });
   };
 
-  // AI 导师讲解本题
-  const handleAskAIExplanation = () => {
-    // 拼装生动的讲解 Prompt 发送给 AI 导师
-    let userMessage = `老师！我刚刚在做关于「${lab.title}」的练习。`;
+  // 生成本地趣味导师学情批注 (在无 API Key 时的备用方案)
+  const getLocalDiagnostic = (score: number) => {
+    const tutor = selectedAgentId || "auto";
+
+    if (tutor === "humor_mentor") {
+      if (score === 100) return "汪汪！满分！不愧是本柴的最佳徒弟，快摸摸本柴的豆豆眉沾沾喜气，今天准能写出无 bug 代码！";
+      if (score >= 80) return "汪！优秀！离满分就差那么一丁点儿啦，快给本柴喂一根肉骨头，下一回保准拿满分！";
+      if (score >= 60) return "汪，及格啦！虽然通过了，但是底层逻辑还要再夯实一下哦。来，跟本柴一起念：KISS原则大法好！";
+      return "汪呜...不及格耶。是不是刚才光顾着看本柴好看的红脸蛋分心了？别气馁，多找本柴聊聊，本柴用苏格拉底大法把你盘明白！";
+    }
+
+    if (tutor === "academic_mentor") {
+      if (score === 100) return "嚯嚯！完美。你的逻辑推演毫无瑕疵，学士帽穗的荣光今天属于你，继续保持这份学术严谨！";
+      if (score >= 80) return "嗯，成绩优异。漏掉的这道题只是一个小小的思维盲区，我已经将底层的核心原理标注在解析里，记得研读。";
+      if (score >= 60) return "达到了及格线。但作为一个合格的系统工程师，你的异常防护和边界处理仍需加强，建议复习相关知识节点。";
+      return "嚯...这个分数有些令人担忧。你的知识图谱在这个节点存在较为明显的断层。不要急躁，带上错题随时来找我，我们从第一性原理开始重构你的认知。";
+    }
+
+    if (tutor === "coach_mentor") {
+      if (score === 100) return "哔哔！检测到完美代码回路！你的大脑逻辑核心运转效率已达100%，继续保持满载运行！";
+      if (score >= 80) return "哔！优秀表现。发现一处微小的逻辑短路，已通过系统解析向你的内存中载入补丁，请注意同步。";
+      if (score >= 60) return "及格，系统勉强运行。编译未报错，但资源占用过高，底层架构需要进一步重构优化，加油。";
+      return "警告！系统崩溃！未通过核心功能测试。请立刻清理大脑缓存，启动修复程序，让我来为你重载知识库！";
+    }
+
+    // Default or auto
+    if (score === 100) return "系统综合评分：100！你的各项知识链路均已成功点亮，完美达成目标！";
+    if (score >= 80) return "系统综合评分：优秀。局部的细微链路存在些许噪声干扰，已自动规划优化路由，点击查看解析。";
+    if (score >= 60) return "系统综合评分：合格。多项指标踩线通过，建议针对错题做学情分析。";
+    return "警告：系统未达标。多处依赖链缺失，请重点攻克错题涉及的关联节点。";
+  };
+
+  // 呼叫 AI 成绩单智能诊断
+  const handleAskAIDiagnostic = async () => {
+    if (!reportCard) return;
+    setAiLoading(true);
+    setAiDiagnostic("");
+
+    const currentModel = model || "gpt-3.5-turbo";
+    const provider = currentModel.includes("gpt") || currentModel.includes("o1") ? "openai" : "anthropic";
+    const apiKey = apiKeys[provider] || (provider === "openai" ? openaiApiKey : "") || "";
+    const baseUrl = baseUrls[provider] || "";
+
+    const agentDisplayNames: Record<string, string> = {
+      auto: "智能路由导师",
+      humor_mentor: "小柴导师",
+      academic_mentor: "小鹰导师",
+      coach_mentor: "小铁导师",
+    };
+
+    const targetTutor = agentDisplayNames[selectedAgentId] || "智能路由导师";
+    const tutorStyle = selectedAgentId === "humor_mentor"
+      ? "幽默、搞笑且喜欢汪汪叫的像素柴犬，说话爱用生活类比"
+      : selectedAgentId === "academic_mentor"
+      ? "古板但极其专业博学、重视第一性原理和学术规范的猫头鹰老教授"
+      : selectedAgentId === "coach_mentor"
+      ? "满脑子硬核逻辑、喜欢发出哔哔电波、注重系统性能和边界防御的机器人教练"
+      : "冷静客观的系统分析专家";
+
+    const prompt = `你扮演AI导师【${targetTutor}】（人设风格为：${tutorStyle}）。
+用户刚刚完成了一套测试，总分是 ${reportCard.score} / 100，答对题目数是 ${reportCard.passedCount} / ${cards.length}。
+题目测试结果列表：
+${reportCard.details.map((d, i) => `题 ${i+1}: ${d.title} | 状态: ${d.passed ? '正确' : '错误'} | 得分: ${d.score}`).join('\n')}
+
+请针对用户的这套测试表现，结合你的导师人设，给出一段100-150字生动风趣、口语化强、充满鼓励且能切中要害的智能诊断报告。千万不要输出任何 markdown 标题或大段列表，用纯文本口语表达。请使用中文回答。`;
+
+    if (apiKey) {
+      try {
+        const url = `${baseUrl || (provider === "openai" ? "https://api.openai.com/v1" : "")}/chat/completions`;
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`
+        };
+        const body = {
+          model: currentModel,
+          messages: [
+            { role: "system", content: `You are ${targetTutor}, a helpful assistant representing a specific tutor persona.` },
+            { role: "user", content: prompt }
+          ],
+          temperature: 0.7
+        };
+
+        const res = await fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body)
+        });
+        
+        if (res.ok) {
+          const resData = await res.json();
+          const reply = resData.choices?.[0]?.message?.content;
+          if (reply) {
+            setAiDiagnostic(reply);
+            setAiLoading(false);
+            return;
+          }
+        }
+      } catch (err) {
+        console.error("AI Diagnostic fetch failed:", err);
+      }
+    }
+
+    setTimeout(() => {
+      setAiDiagnostic(getLocalDiagnostic(reportCard.score));
+      setAiLoading(false);
+    }, 600);
+  };
+
+  // 成绩单弹窗弹出时，预载入所有错题的收藏状态并缓存
+  useEffect(() => {
+    if (status === "checked" && reportCard) {
+      const initCollectStates = async () => {
+        const states: Record<string, boolean> = {};
+        const promises = reportCard.details.map(async (d) => {
+          try {
+            const res = await collectionApi.checkIsCollected(d.title);
+            states[d.id] = res.is_collected;
+          } catch {
+            states[d.id] = false;
+          }
+        });
+        await Promise.all(promises);
+        setModalCollectedIds(states);
+      };
+      initCollectStates();
+    }
+  }, [status, reportCard]);
+
+  // 成绩单 Modal 内点击收藏
+  const handleToggleCollectInModal = async (card: LabData) => {
+    if (onToggleCollect) {
+      await onToggleCollect(card);
+      try {
+        const res = await collectionApi.checkIsCollected(card.title);
+        setModalCollectedIds((prev) => ({
+          ...prev,
+          [card.id]: res.is_collected
+        }));
+        // 如果正好是当前卡片，同步更新主高亮
+        if (card.id === activeCard?.id) {
+          setCurrentCollected(res.is_collected);
+        }
+      } catch (err) {
+        console.error("Toggle modal collect state failed:", err);
+      }
+    }
+  };
+
+  // AI 导师一对一讲解单个错题
+  const handleAskSingleExplanation = (cardResult: any) => {
+    let userMessage = `老师！我刚刚在做关于「${cardResult.title}」的练习。`;
     userMessage += `\n题型是：${
-      lab.lab_type === "quiz" ? "概念选择题" : 
-      lab.lab_type === "match" ? "概念生活类比连线匹配题" : 
-      lab.lab_type === "arrange" ? "流程/步骤排序题" : "填空题"
+      cardResult.lab_type === "quiz" ? "概念选择题" : 
+      cardResult.lab_type === "match" ? "概念生活类比连线匹配题" : 
+      cardResult.lab_type === "arrange" ? "流程/步骤排序题" : "填空题"
     }。`;
-    userMessage += `\n\n【题目描述】：\n${lab.description}`;
+    userMessage += `\n\n【题目描述】：\n${cardResult.description}`;
     
-    if (lab.lab_type === "quiz") {
-      const questions = lab.test_cases.questions || [];
+    if (cardResult.lab_type === "quiz") {
+      const questions = cardResult.test_cases.questions || [];
       userMessage += `\n\n【具体题目内容】：`;
       questions.forEach((q: any) => {
-        const userChoice = q.options[quizAnswers[q.id]] || "未作答";
+        const userChoice = q.options[cardResult.answers.quizAnswers[q.id]] || "未作答";
         const correctChoice = q.options[q.answer];
-        userMessage += `\n- 题目：${q.text}\n  - 我的回答：${userChoice} （状态：${quizAnswers[q.id] === q.answer ? "回答正确" : "回答错误"}）\n  - 正确答案应该是：${correctChoice}`;
+        userMessage += `\n- 题目：${q.text}\n  - 我的回答：${userChoice} （状态：${cardResult.answers.quizAnswers[q.id] === q.answer ? "回答正确" : "回答错误"}）\n  - 正确答案应该是：${correctChoice}`;
       });
     } 
-    else if (lab.lab_type === "match") {
+    else if (cardResult.lab_type === "match") {
       userMessage += `\n\n【匹配状态】：`;
-      userMessage += `\n- 左侧概念术语：${JSON.stringify(lab.test_cases.left)}`;
-      userMessage += `\n- 右侧生活类比：${JSON.stringify(lab.test_cases.right)}`;
-      userMessage += `\n- 正确配对关系：${JSON.stringify(lab.test_cases.pairs)}`;
-      userMessage += `\n- 我的配对回答：${JSON.stringify(matches)}`;
+      userMessage += `\n- 左侧概念术语：${JSON.stringify(cardResult.test_cases.left)}`;
+      userMessage += `\n- 右侧生活类比：${JSON.stringify(cardResult.test_cases.right)}`;
+      userMessage += `\n- 正确配对关系：${JSON.stringify(cardResult.test_cases.pairs)}`;
+      userMessage += `\n- 我的配对回答：${JSON.stringify(cardResult.answers.matches)}`;
     } 
-    else if (lab.lab_type === "arrange") {
+    else if (cardResult.lab_type === "arrange") {
       userMessage += `\n\n【排序结果】：`;
-      userMessage += `\n- 标准步骤：${JSON.stringify(lab.test_cases.steps)}`;
-      userMessage += `\n- 我的排序索引序列：${JSON.stringify(originalIndices)} （标准序列应该是：${JSON.stringify(lab.test_cases.correct_order)}）`;
+      userMessage += `\n- 标准步骤：${JSON.stringify(cardResult.test_cases.steps)}`;
+      userMessage += `\n- 我的排序索引序列：${JSON.stringify(cardResult.answers.originalIndices)} （标准序列应该是：${JSON.stringify(cardResult.test_cases.correct_order)}）`;
     } 
-    else if (lab.lab_type === "fill") {
+    else if (cardResult.lab_type === "fill") {
       userMessage += `\n\n【填空详情】：`;
-      userMessage += `\n- 题目挖空正文：${lab.test_cases.text}`;
-      userMessage += `\n- 我的填空：${JSON.stringify(fillInputs)} （标准答案应该是：${JSON.stringify(lab.test_cases.blanks)}）`;
+      userMessage += `\n- 题目挖空正文：${cardResult.test_cases.text}`;
+      userMessage += `\n- 我的填空：${JSON.stringify(cardResult.answers.fillInputs)} （标准答案应该是：${JSON.stringify(cardResult.test_cases.blanks)}）`;
     }
 
-    if (lab.detailed_explanation) {
-      userMessage += `\n\n【标准标准解答】：\n${lab.detailed_explanation}`;
+    if (cardResult.detailed_explanation) {
+      userMessage += `\n\n【标准解答】：\n${cardResult.detailed_explanation}`;
     }
 
-    userMessage += `\n\n请用通俗幽默、充满生活小故事的苏格拉底式方式，帮我彻底讲解一下我这道题背后的计算机底层逻辑，并点拨一下我的思维盲区！`;
-    
-    // 打开助手并带入消息和焦点节点
-    openAssistant(lab.node_id || undefined, lab.title);
+    openAssistant(cardResult.rawCard.node_id || undefined, cardResult.title);
     setTriggerMessage(userMessage);
   };
 
+  if (cards.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-full text-slate-400 text-xs py-12">
+        暂无题目数据
+      </div>
+    );
+  }
+
+
+
   return (
-    <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl p-6 shadow-sm flex flex-col gap-5 transition-all duration-300">
+    <div className="bg-[#fcfdff] dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800 rounded-3xl p-6 shadow-md flex flex-col gap-6 transition-all duration-300 relative">
       
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
-        <div>
-          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-650 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/40 uppercase tracking-wider font-mono">
-            {lab.lab_type === "quiz" ? "Concept Quiz" : lab.lab_type === "match" ? "Interactive Match" : lab.lab_type === "arrange" ? "Logical Arrange" : "Concept Fill"}
+      {/* 1. 顶部卡片指示器与操作 */}
+      <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/80 pb-4">
+        <div className="flex flex-col gap-1">
+          <span className="text-[10px] font-bold px-2.5 py-0.8 w-fit rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-650 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/30 uppercase tracking-wider font-mono">
+            {activeCard.lab_type === "quiz" ? "Concept Quiz" : activeCard.lab_type === "match" ? "Interactive Match" : activeCard.lab_type === "arrange" ? "Logical Arrange" : "Concept Fill"}
           </span>
-          <h2 className="text-base font-bold text-slate-850 dark:text-white mt-1.5">{lab.title}</h2>
-          <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 leading-normal">{lab.description}</p>
+          <div className="flex items-center gap-2 mt-1">
+            <h2 className="text-base font-bold text-slate-800 dark:text-white leading-tight">{activeCard.title}</h2>
+            <span className="text-[10px] text-slate-400 font-semibold font-mono bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md">
+              {currentIndex + 1} / {cards.length}
+            </span>
+          </div>
         </div>
 
-        {/* 收藏按钮 */}
+        {/* 单题收藏 */}
         {onToggleCollect && (
           <button
-            onClick={onToggleCollect}
+            onClick={() => handleToggleCollectCurrent(activeCard)}
             className={cn(
               "p-2 rounded-xl border transition-all duration-200",
-              isCollected
+              currentCollected
                 ? "bg-amber-500/10 border-amber-400/30 text-amber-500 hover:bg-amber-500/20"
                 : "border-slate-200 dark:border-slate-800 text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-600"
             )}
-            title={isCollected ? "取消收藏" : "收藏题目"}
+            title={currentCollected ? "取消收藏" : "收藏本题"}
           >
-            <Star className={cn("h-4 w-4", isCollected && "fill-current")} />
+            <Star className={cn("h-4 w-4", currentCollected && "fill-current")} />
           </button>
         )}
       </div>
 
-      {/* 答题交互区 */}
-      <div className="flex-1 min-h-[160px]">
-        {status === "answering" ? (
-          <>
-            {/* 1. 单项选择题 Quiz */}
-            {lab.lab_type === "quiz" && (
-              <div className="space-y-5">
-                {(lab.test_cases.questions || []).map((q: any, qIdx: number) => (
-                  <div key={q.id} className="space-y-2">
-                    <h4 className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                      {qIdx + 1}. {q.text}
-                    </h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      {q.options.map((opt: string, optIdx: number) => (
-                        <button
-                          key={optIdx}
-                          onClick={() => setQuizAnswers((prev) => ({ ...prev, [q.id]: optIdx }))}
-                          className={cn(
-                            "w-full text-left px-4 py-3 rounded-xl border text-xs transition-all duration-150",
-                            quizAnswers[q.id] === optIdx
-                              ? "border-indigo-500 bg-indigo-500/5 text-indigo-700 dark:text-indigo-400 font-bold"
-                              : "border-slate-100 dark:border-slate-800 hover:bg-slate-50/50 dark:hover:bg-slate-800/40 text-slate-600 dark:text-slate-300"
-                          )}
-                        >
-                          <span className="font-mono mr-2 font-semibold">{String.fromCharCode(65 + optIdx)}.</span>
-                          {opt}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+      {/* 2. 卡片题目说明 */}
+      <div className="bg-slate-50/40 dark:bg-slate-800/10 rounded-2xl p-4 border border-slate-100/60 dark:border-slate-800/40">
+        <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-sans">{activeCard.description}</p>
+      </div>
 
-            {/* 2. 连线匹配题 Match */}
-            {lab.lab_type === "match" && (
-              <div className="space-y-4">
-                <p className="text-[10px] text-indigo-500 font-medium">提示：先点击左侧的术语，再点击右侧对应的趣味生活类比配对！</p>
-                <div className="grid grid-cols-2 gap-8 relative">
-                  {/* Left Column (Concepts) */}
-                  <div className="space-y-2">
-                    {(lab.test_cases.left || []).map((leftVal: string) => {
-                      const matchedRight = matches[leftVal];
-                      return (
-                        <button
-                          key={leftVal}
-                          onClick={() => handleMatchClick("left", leftVal)}
-                          className={cn(
-                            "w-full text-left px-4 py-3 rounded-xl border text-xs transition-all duration-200 flex items-center justify-between",
-                            selectedLeft === leftVal
-                              ? "border-indigo-500 bg-indigo-500/5 text-indigo-650 dark:text-indigo-400 font-bold ring-2 ring-indigo-500/20"
-                              : matchedRight
-                              ? "border-emerald-200 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400 font-medium"
-                              : "border-slate-150 dark:border-slate-800 hover:bg-slate-50/40 text-slate-700 dark:text-slate-300"
-                          )}
-                        >
-                          <span>{leftVal}</span>
-                          {matchedRight && (
-                            <span 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleClearMatch(leftVal);
-                              }}
-                              className="text-[9px] text-slate-400 hover:text-red-500 font-semibold px-1 py-0.5 rounded hover:bg-red-50 dark:hover:bg-red-950/20 ml-2"
-                            >
-                              取消
+      {/* 3. 答题交互区域 (卡片内部) */}
+      <div className="flex-1 min-h-[180px] py-2">
+        {(() => {
+          const activeTestCases = getSafeTestCases(activeCard);
+          return (
+            <>
+              {/* 单项选择题 Quiz */}
+              {activeCard.lab_type === "quiz" && (
+                <div className="space-y-4">
+                  {(activeTestCases.questions || []).map((q: any, qIdx: number) => (
+                    <div key={q.id} className="space-y-2">
+                      <h4 className="text-xs font-bold text-slate-700 dark:text-slate-200 leading-normal">
+                        {qIdx + 1}. {q.text}
+                      </h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        {q.options.map((opt: string, optIdx: number) => (
+                          <button
+                            key={optIdx}
+                            onClick={() => setQuizAnswers((prev) => ({ ...prev, [q.id]: optIdx }))}
+                            className={cn(
+                              "w-full text-left px-4 py-3 rounded-2xl border text-xs transition-all duration-150 flex items-center gap-2",
+                              quizAnswers[q.id] === optIdx
+                                ? "border-indigo-500 bg-indigo-500/5 text-indigo-700 dark:text-indigo-455 font-bold shadow-sm"
+                                : "border-slate-150 dark:border-slate-855 hover:bg-slate-50/30 dark:hover:bg-slate-800/20 text-slate-600 dark:text-slate-350"
+                            )}
+                          >
+                            <span className="font-mono font-bold w-5 h-5 rounded bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400">
+                              {String.fromCharCode(65 + optIdx)}
                             </span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* Right Column (Analogy) */}
-                  <div className="space-y-2">
-                    {(lab.test_cases.right || []).map((rightVal: string) => {
-                      // 查找是否有配对
-                      const matchedLeftKey = Object.keys(matches).find(k => matches[k] === rightVal);
-                      return (
-                        <button
-                          key={rightVal}
-                          onClick={() => handleMatchClick("right", rightVal)}
-                          className={cn(
-                            "w-full text-left px-4 py-3 rounded-xl border text-xs transition-all duration-250",
-                            matchedLeftKey
-                              ? "border-emerald-200 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400 font-medium"
-                              : selectedLeft
-                              ? "border-indigo-100 dark:border-indigo-900/20 hover:border-indigo-300 text-slate-600 dark:text-slate-400 hover:bg-indigo-500/5 animate-pulse"
-                              : "border-slate-150 dark:border-slate-800 hover:bg-slate-50/40 text-slate-700 dark:text-slate-300"
-                          )}
-                        >
-                          <span>{rightVal}</span>
-                          {matchedLeftKey && (
-                            <span className="block text-[8px] text-slate-400 mt-0.5 truncate font-mono">
-                              已匹配: {matchedLeftKey}
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* 3. 步骤排序题 Arrange */}
-            {lab.lab_type === "arrange" && (
-              <div className="space-y-3">
-                <p className="text-[10px] text-indigo-500 font-medium">提示：请用卡片右侧的上下箭头调整步骤顺序，重组成正确的业务逻辑链！</p>
-                <div className="space-y-2">
-                  {arrangeSteps.map((step, idx) => (
-                    <div
-                      key={idx}
-                      className="bg-slate-50/50 dark:bg-slate-800/20 border border-slate-100 dark:border-slate-800 rounded-xl p-3 flex items-center justify-between text-xs transition-all"
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-800 text-[10px] font-bold font-mono flex items-center justify-center text-slate-500">
-                          {idx + 1}
-                        </span>
-                        <span className="text-slate-700 dark:text-slate-200 font-medium">{step}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => handleMoveStep(idx, "up")}
-                          disabled={idx === 0}
-                          className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 disabled:opacity-30 disabled:pointer-events-none"
-                        >
-                          <ArrowUp className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleMoveStep(idx, "down")}
-                          disabled={idx === arrangeSteps.length - 1}
-                          className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 disabled:opacity-30 disabled:pointer-events-none"
-                        >
-                          <ArrowDown className="h-3.5 w-3.5" />
-                        </button>
+                            <span className="flex-1 truncate">{opt}</span>
+                          </button>
+                        ))}
                       </div>
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* 4. 概念填空题 Fill */}
-            {lab.lab_type === "fill" && (
-              <div className="space-y-4">
-                <p className="text-[10px] text-indigo-500 font-medium">提示：请在下方文本空缺的输入框中，键入填空项！</p>
-                <div className="bg-slate-50/50 dark:bg-slate-800/20 border border-slate-100 dark:border-slate-800 rounded-2xl p-5 leading-relaxed text-slate-700 dark:text-slate-200 text-xs">
-                  {(() => {
-                    // 用正则匹配所有的 3 个或更多短横线下划线，切分后嵌入 <input>
-                    const text = lab.test_cases.text || "";
-                    const parts = text.split(/___/);
-                    return parts.map((part: string, idx: number) => (
-                      <React.Fragment key={idx}>
-                        <span>{part}</span>
-                        {idx < parts.length - 1 && (
-                          <input
-                            type="text"
-                            value={fillInputs[idx] || ""}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setFillInputs((prev) => {
-                                const copy = [...prev];
-                                copy[idx] = val;
-                                return copy;
-                              });
-                            }}
-                            placeholder={`填空 ${idx + 1}`}
-                            className="mx-1 px-2.5 py-1 text-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-bold text-indigo-650 dark:text-indigo-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/20 w-28 inline-block"
-                          />
-                        )}
-                      </React.Fragment>
-                    ));
-                  })()}
+              {/* 连线匹配题 Match */}
+              {activeCard.lab_type === "match" && (
+                <div className="space-y-3">
+                  <p className="text-[10px] text-indigo-500 font-semibold bg-indigo-500/5 p-2 rounded-xl w-fit">
+                    提示：先点击左侧的术语，再点击右侧对应的趣味生活类比配对！
+                  </p>
+                  <div className="grid grid-cols-2 gap-6 relative mt-2">
+                    <div className="space-y-2">
+                      {(activeTestCases.left || []).map((leftVal: string) => {
+                        const matchedRight = matches[leftVal];
+                        return (
+                          <button
+                            key={leftVal}
+                            onClick={() => handleMatchClick("left", leftVal)}
+                            className={cn(
+                              "w-full text-left px-4 py-3.5 rounded-2xl border text-xs transition-all duration-200 flex items-center justify-between shadow-sm",
+                              selectedLeft === leftVal
+                                ? "border-indigo-500 bg-indigo-500/5 text-indigo-650 dark:text-indigo-400 font-bold ring-2 ring-indigo-500/10"
+                                : matchedRight
+                                ? "border-emerald-250 bg-emerald-500/5 text-emerald-700 dark:text-emerald-450 font-medium"
+                                : "border-slate-150 dark:border-slate-855 hover:bg-slate-50/30 text-slate-700 dark:text-slate-300"
+                            )}
+                          >
+                            <span className="truncate">{leftVal}</span>
+                            {matchedRight && (
+                              <span 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleClearMatch(leftVal);
+                                }}
+                                className="text-[9px] text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-955/20 px-2 py-0.8 rounded-md font-bold transition-all"
+                              >
+                                取消
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div className="space-y-2">
+                      {(activeTestCases.right || []).map((rightVal: string) => {
+                        const matchedLeftKey = Object.keys(matches).find(k => matches[k] === rightVal);
+                        return (
+                          <button
+                            key={rightVal}
+                            onClick={() => handleMatchClick("right", rightVal)}
+                            className={cn(
+                              "w-full text-left px-4 py-3.5 rounded-2xl border text-xs transition-all duration-200 shadow-sm",
+                              matchedLeftKey
+                                ? "border-emerald-250 bg-emerald-500/5 text-emerald-700 dark:text-emerald-450 font-medium"
+                                : selectedLeft
+                                ? "border-indigo-200 dark:border-indigo-900/40 text-slate-650 hover:border-indigo-400 dark:text-slate-400 hover:bg-indigo-500/5 animate-pulse"
+                                : "border-slate-150 dark:border-slate-855 hover:bg-slate-50/30 text-slate-700 dark:text-slate-300"
+                            )}
+                          >
+                            <span className="block truncate">{rightVal}</span>
+                            {matchedLeftKey && (
+                              <span className="block text-[8px] text-slate-400 mt-1 font-mono font-medium truncate">
+                                已配对: {matchedLeftKey}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 步骤排序题 Arrange */}
+              {activeCard.lab_type === "arrange" && (
+                <div className="space-y-3">
+                  <p className="text-[10px] text-indigo-500 font-semibold bg-indigo-500/5 p-2 rounded-xl w-fit">
+                    提示：请用卡片右侧的上下箭头调整步骤顺序，重组成正确的业务逻辑链！
+                  </p>
+                  <div className="space-y-2 mt-2">
+                    {arrangeSteps.map((step, idx) => (
+                      <div
+                        key={idx}
+                        className="bg-slate-50/30 dark:bg-slate-800/10 border border-slate-150/60 dark:border-slate-855 rounded-2xl p-3.5 flex items-center justify-between text-xs transition-all shadow-sm"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="w-5 h-5 rounded-full bg-slate-100 dark:bg-slate-800 text-[10px] font-bold font-mono flex items-center justify-center text-slate-400">
+                            {idx + 1}
+                          </span>
+                          <span className="text-slate-750 dark:text-slate-200 font-medium leading-relaxed">{step}</span>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            onClick={() => handleMoveStep(idx, "up")}
+                            disabled={idx === 0}
+                            className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 disabled:opacity-30 disabled:pointer-events-none"
+                          >
+                            <ArrowUp className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleMoveStep(idx, "down")}
+                            disabled={idx === arrangeSteps.length - 1}
+                            className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 disabled:opacity-30 disabled:pointer-events-none"
+                          >
+                            <ArrowDown className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 概念填空题 Fill */}
+              {activeCard.lab_type === "fill" && (
+                <div className="space-y-3">
+                  <p className="text-[10px] text-indigo-500 font-semibold bg-indigo-500/5 p-2 rounded-xl w-fit">
+                    提示：请在下方文本空缺的输入框中，键入填空项！
+                  </p>
+                  <div className="bg-slate-50/30 dark:bg-slate-800/10 border border-slate-150/60 dark:border-slate-850 rounded-2xl p-5 leading-relaxed text-slate-700 dark:text-slate-250 text-xs shadow-sm">
+                    {(() => {
+                      const text = activeTestCases.text || "";
+                      const parts = text.split(/___/);
+                      return parts.map((part: string, idx: number) => (
+                        <React.Fragment key={idx}>
+                          <span>{part}</span>
+                          {idx < parts.length - 1 && (
+                            <input
+                              type="text"
+                              value={fillInputs[idx] || ""}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setFillInputs((prev) => {
+                                  const copy = [...prev];
+                                  copy[idx] = val;
+                                  return copy;
+                                });
+                              }}
+                              placeholder={`填空 ${idx + 1}`}
+                              className="mx-1 px-3 py-1 text-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-indigo-650 dark:text-indigo-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/10 w-28 inline-block"
+                            />
+                          )}
+                        </React.Fragment>
+                      ));
+                    })()}
+                  </div>
+                </div>
+              )}
+            </>
+          );
+        })()}
+      </div>
+
+      {/* 4. 底部翻页控制器与答题卡导航条 */}
+      <div className="border-t border-slate-100 dark:border-slate-800 pt-4 flex flex-col gap-4">
+        
+        {/* 题号快速导航指示器 */}
+        {cards.length > 1 && (
+          <div className="flex items-center justify-center gap-1.5 flex-wrap">
+            {cards.map((card, idx) => {
+              const ans = sessionAnswersRef.current[card.id] || {};
+              const curAns = idx === currentIndex ? { quizAnswers, matches, originalIndices, fillInputs } : ans;
+              
+              let isAnswered = false;
+              if (card.lab_type === "quiz" && Object.keys(curAns.quizAnswers || {}).length > 0) isAnswered = true;
+              if (card.lab_type === "match" && Object.keys(curAns.matches || {}).length > 0) isAnswered = true;
+              if (card.lab_type === "arrange") isAnswered = true;
+              if (card.lab_type === "fill" && (curAns.fillInputs || []).some(v => v.trim() !== "")) isAnswered = true;
+
+              return (
+                <button
+                  key={card.id}
+                  onClick={() => handleNavigate(idx)}
+                  className={cn(
+                    "w-7 h-7 rounded-xl text-[10px] font-bold transition-all border flex items-center justify-center",
+                    idx === currentIndex
+                      ? "border-indigo-500 bg-indigo-500 text-white shadow-sm ring-4 ring-indigo-500/15"
+                      : isAnswered
+                      ? "bg-indigo-50 dark:bg-indigo-955/20 border-indigo-100 dark:border-indigo-900/30 text-indigo-600 dark:text-indigo-400"
+                      : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500 hover:bg-slate-50"
+                  )}
+                >
+                  {idx + 1}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* 前进/后退/统一提交大按钮 */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => handleNavigate(currentIndex - 1)}
+              disabled={currentIndex === 0}
+              className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-bold transition-all flex items-center gap-1 disabled:opacity-35 disabled:pointer-events-none"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              上一题
+            </button>
+
+            <button
+              onClick={() => handleNavigate(currentIndex + 1)}
+              disabled={currentIndex === cards.length - 1}
+              className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-bold transition-all flex items-center gap-1 disabled:opacity-35 disabled:pointer-events-none"
+            >
+              下一题
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 text-[10px] font-bold text-slate-505 dark:text-slate-400 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={autoCollectWrong}
+                onChange={(e) => handleAutoCollectWrongChange(e.target.checked)}
+                className="rounded border-slate-300 dark:border-slate-800 text-indigo-600 focus:ring-indigo-500/20 w-3.5 h-3.5"
+              />
+              错题自动收藏
+            </label>
+
+            <button
+              onClick={handleCheckAllAnswers}
+              disabled={isSubmitting}
+              className="px-6 py-2.5 rounded-xl bg-slate-900 dark:bg-indigo-600 hover:bg-slate-800 dark:hover:bg-indigo-700 text-white font-bold text-xs transition-all disabled:opacity-40 disabled:pointer-events-none shadow-sm flex items-center gap-1.5"
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  正在评测中...
+                </>
+              ) : (
+                <>
+                  <Check className="h-3.5 w-3.5" />
+                  提交本篇答卷
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* 5. 成绩单诊断 Modal Overlay */}
+      {status === "checked" && reportCard && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md animate-in fade-in duration-200 p-4">
+          <div className="w-[min(680px,95vw)] max-h-[85vh] bg-white dark:bg-[#121424] border border-slate-150 dark:border-[#222744] rounded-3xl p-6 shadow-2xl flex flex-col gap-5 overflow-y-auto animate-in zoom-in-95 duration-200">
+            
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/80 pb-3">
+              <h3 className="text-base font-bold text-slate-850 dark:text-white flex items-center gap-1.5">
+                <Trophy className="h-5 w-5 text-amber-500" />
+                小考成绩单诊断报告
+              </h3>
+              <button
+                onClick={() => {
+                  setReportCard(null);
+                  setStatus("answering");
+                }}
+                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-655"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Score & Medal Widget */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50/50 dark:bg-slate-800/10 p-5 rounded-2xl border border-slate-100 dark:border-slate-850">
+              <div className="flex flex-col items-center justify-center text-center gap-1">
+                <div className="text-xs text-slate-400 font-bold">综合考核得分</div>
+                <div className="text-4xl font-extrabold font-mono text-indigo-600 dark:text-indigo-400 mt-1">
+                  {reportCard.score} <span className="text-xs text-slate-450 font-normal">/ 100</span>
+                </div>
+                <div className="text-[10px] text-slate-400 font-medium mt-1">
+                  通关率：{reportCard.passedCount} / {cards.length} 题正确
                 </div>
               </div>
-            )}
-          </>
-        ) : (
-          /* Checked 评分与解析展示状态 */
-          <div className="space-y-4">
-            
-            {/* 评分卡片 */}
-            <div className={cn(
-              "border rounded-2xl p-5 flex flex-col items-center justify-center gap-2 text-center",
-              isCorrect
-                ? "bg-emerald-500/5 border-emerald-200 text-emerald-700 dark:text-emerald-400"
-                : "bg-red-500/5 border-red-200 text-red-600 dark:text-red-400"
-            )}>
-              <div className="p-2 bg-white dark:bg-slate-800 rounded-full shadow-sm">
-                {isCorrect ? (
-                  <Sparkles className="h-6 w-6 text-emerald-500 animate-bounce" />
-                ) : (
-                  <X className="h-6 w-6 text-red-500" />
-                )}
-              </div>
-              <div>
-                <h3 className="text-sm font-bold">{isCorrect ? "挑战成功！全部回答正确" : "检验未全对"}</h3>
-                <p className="text-[10px] text-slate-405 dark:text-slate-500 mt-0.5">本次得分：{score} / 100 分</p>
+
+              {/* Medal Indicator */}
+              <div className="flex flex-col items-center justify-center text-center gap-2 border-t md:border-t-0 md:border-l border-slate-150 dark:border-slate-800/60 pt-4 md:pt-0">
+                <div className="p-3 bg-white dark:bg-slate-900 rounded-full shadow-md animate-bounce">
+                  {reportCard.score === 100 ? (
+                    <Trophy className="h-8 w-8 text-amber-500" />
+                  ) : reportCard.score >= 80 ? (
+                    <Award className="h-8 w-8 text-indigo-500" />
+                  ) : reportCard.score >= 60 ? (
+                    <Award className="h-8 w-8 text-emerald-500" />
+                  ) : (
+                    <Brain className="h-8 w-8 text-slate-400" />
+                  )}
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                    {reportCard.score === 100 ? "圆满通关 (Perfect)" :
+                     reportCard.score >= 80 ? "优秀学者 (Excellent)" :
+                     reportCard.score >= 60 ? "通过勇士 (Passed)" : "再接再励 (Keep Trying)"}
+                  </h4>
+                  <p className="text-[9px] text-slate-400 mt-0.5">继续沉淀，攻克盲点</p>
+                </div>
               </div>
             </div>
 
-            {/* 详细答案及解析 */}
-            {lab.detailed_explanation && (
-              <div className="bg-slate-50 dark:bg-slate-800/30 rounded-xl p-4 border border-slate-100 dark:border-slate-800/80">
-                <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 mb-2">
-                  <Brain className="h-4 w-4 text-indigo-500" />
-                  通俗原理解析与详细标准解答
+            {/* AI 导师诊断评语区 */}
+            <div className="bg-indigo-50/20 dark:bg-indigo-950/10 border border-indigo-100/60 dark:border-indigo-900/30 rounded-2xl p-4 flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-indigo-650 dark:text-indigo-400 flex items-center gap-1.5">
+                  <Sparkles className="h-4 w-4 animate-pulse" />
+                  AI 导师智能诊断批注
                 </h4>
-                <p className="text-xs text-slate-500 dark:text-slate-450 leading-relaxed font-sans">
-                  {lab.detailed_explanation}
-                </p>
+                {!aiDiagnostic && !aiLoading && (
+                  <button
+                    onClick={handleAskAIDiagnostic}
+                    className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold transition-all"
+                  >
+                    一键分析学情
+                  </button>
+                )}
               </div>
-            )}
+              
+              {aiLoading && (
+                <div className="flex items-center gap-2 py-4 justify-center text-xs text-slate-400">
+                  <Loader2 className="h-4 w-4 animate-spin text-indigo-500" />
+                  <span>导师正在仔细翻阅答卷，分析您的思维盲区...</span>
+                </div>
+              )}
 
-            {/* 互动讲解控制 */}
-            <div className="flex items-center gap-3">
-              <button
-                onClick={handleAskAIExplanation}
-                className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-bold text-xs hover:from-indigo-650 hover:to-purple-700 transition-all shadow-sm hover:shadow-indigo-500/10 flex items-center justify-center gap-2"
-              >
-                <Sparkles className="h-3.5 w-3.5" />
-                呼叫 AI 导师一对一类比讲解
-              </button>
+              {aiDiagnostic && (
+                <p className="text-xs text-slate-600 dark:text-slate-350 leading-relaxed font-medium">
+                  {aiDiagnostic}
+                </p>
+              )}
+            </div>
 
+            {/* 对错看盘导航格子 */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400">作答细节评估</h4>
+              <div className="flex items-center gap-2 flex-wrap">
+                {reportCard.details.map((d, i) => (
+                  <a
+                    key={d.id}
+                    href={`#report-card-item-${d.id}`}
+                    className={cn(
+                      "w-8 h-8 rounded-xl text-[10px] font-bold flex items-center justify-center transition-all border",
+                      d.passed
+                        ? "bg-emerald-500 border-emerald-500 text-white hover:scale-105 shadow-sm shadow-emerald-500/10"
+                        : "bg-rose-500 border-rose-500 text-white hover:scale-105 shadow-sm shadow-rose-500/10"
+                    )}
+                  >
+                    {i + 1}
+                  </a>
+                ))}
+              </div>
+            </div>
+
+            {/* 详细答案与解析列表 */}
+            <div className="space-y-4 border-t border-slate-100 dark:border-slate-800/80 pt-4 max-h-[300px] overflow-y-auto pr-1">
+              {reportCard.details.map((d, idx) => (
+                <div
+                  key={d.id}
+                  id={`report-card-item-${d.id}`}
+                  className="bg-slate-50/30 dark:bg-slate-850 border border-slate-150/60 dark:border-slate-800 rounded-2xl p-4 space-y-3 scroll-mt-2"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-center gap-2">
+                      <span className={cn(
+                        "w-5 h-5 rounded-full text-[9px] font-mono font-bold flex items-center justify-center text-white",
+                        d.passed ? "bg-emerald-500" : "bg-rose-500"
+                      )}>
+                        {idx + 1}
+                      </span>
+                      <h4 className="font-bold text-xs text-slate-800 dark:text-white">{d.title}</h4>
+                    </div>
+
+                    {onToggleCollect && (
+                      <button
+                        onClick={() => handleToggleCollectInModal(d.rawCard)}
+                        className={cn(
+                          "transition-all duration-200 p-1",
+                          modalCollectedIds[d.id]
+                            ? "text-amber-500 hover:text-amber-600"
+                            : "text-slate-400 hover:text-amber-500"
+                        )}
+                        title={modalCollectedIds[d.id] ? "取消收藏此题" : "收藏此题"}
+                      >
+                        <Star className={cn("h-3.5 w-3.5", modalCollectedIds[d.id] && "fill-current")} />
+                      </button>
+                    )}
+                  </div>
+
+                  <p className="text-[10px] text-slate-450 leading-relaxed">{d.description}</p>
+
+                  {/* 针对不同题型输出答题对错与对照 */}
+                  <div className="text-[10px] space-y-1 bg-white dark:bg-slate-900/60 p-3 rounded-xl border border-slate-100 dark:border-slate-800/40">
+                    {d.lab_type === "quiz" && (
+                      <div>
+                        {d.test_cases.questions.map((q: any) => {
+                          const userAnsIdx = d.answers.quizAnswers[q.id];
+                          const userAnsText = q.options[userAnsIdx] || "未选择";
+                          const correctAnsText = q.options[q.answer];
+                          return (
+                            <div key={q.id} className="space-y-0.5 border-b border-slate-50 dark:border-slate-800/40 pb-1.5 mb-1.5 last:border-0 last:pb-0 last:mb-0">
+                              <p className="font-semibold text-slate-700 dark:text-slate-350">问: {q.text}</p>
+                              <p className={cn("font-medium", userAnsIdx === q.answer ? "text-emerald-500" : "text-rose-500")}>
+                                我的回答: {userAnsText} ({userAnsIdx === q.answer ? "正确" : "错误"})
+                              </p>
+                              {userAnsIdx !== q.answer && (
+                                <p className="text-slate-400">正确参考答案: {correctAnsText}</p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {d.lab_type === "match" && (
+                      <div className="space-y-1">
+                        <p className="font-bold text-slate-700 dark:text-slate-300">配对映射表：</p>
+                        {Object.entries(d.test_cases.pairs || {}).map(([left, right]) => {
+                          const userMatch = d.answers.matches[left];
+                          return (
+                            <div key={left} className="flex items-center gap-1.5">
+                              <span className="text-slate-450 font-medium">【{left}】 ──</span>
+                              <span className={cn("font-semibold", userMatch === right ? "text-emerald-500" : "text-rose-500")}>
+                                {userMatch || "未连线"} ({userMatch === right ? "正确" : `应为: ${right}`})
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {d.lab_type === "arrange" && (
+                      <div className="space-y-1">
+                        <p className="font-bold text-slate-750 dark:text-slate-300">排序步骤对照：</p>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <p className="text-[9px] text-slate-400 font-medium">您的排序：</p>
+                            {(d.answers.originalIndices || []).map((stepIdx: number, i: number) => (
+                              <p key={i} className="text-rose-500 font-medium">
+                                {i + 1}. {d.test_cases.steps[stepIdx] || "空"}
+                              </p>
+                            ))}
+                          </div>
+                          <div>
+                            <p className="text-[9px] text-slate-400 font-medium">标准顺序：</p>
+                            {(d.test_cases.correct_order || []).map((stepIdx: number, i: number) => (
+                              <p key={i} className="text-emerald-500 font-semibold">
+                                {i + 1}. {d.test_cases.steps[stepIdx]}
+                              </p>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {d.lab_type === "fill" && (
+                      <div className="space-y-1">
+                        <p className="font-bold text-slate-700 dark:text-slate-350">填空词对照：</p>
+                        {d.test_cases.blanks.map((correctVal: string, i: number) => {
+                          const userVal = (d.answers.fillInputs[i] || "").trim().toLowerCase();
+                          const isBlankCorrect = userVal === correctVal.trim().toLowerCase();
+                          return (
+                            <div key={i} className="flex items-center gap-1">
+                              <span className="text-slate-450">填空 {i + 1}: </span>
+                              <span className={cn("font-semibold", isBlankCorrect ? "text-emerald-500" : "text-rose-500")}>
+                                {d.answers.fillInputs[i] || "未填写"} ({isBlankCorrect ? "正确" : `应为: ${correctVal}`})
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 内置原理解析 */}
+                  {d.detailed_explanation && (
+                    <div className="bg-slate-50 dark:bg-slate-900 rounded-xl p-3.5 border border-slate-100 dark:border-slate-800/80">
+                      <h5 className="text-[10px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 mb-1">
+                        <Brain className="h-3.5 w-3.5 text-indigo-500" />
+                        题目背景与原理解释
+                      </h5>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed font-sans">
+                        {d.detailed_explanation}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* 呼叫一对一 AI 讲解 */}
+                  <button
+                    onClick={() => handleAskSingleExplanation(d)}
+                    className="w-full py-2 bg-gradient-to-r from-indigo-500/10 to-purple-600/10 hover:from-indigo-500/20 hover:to-purple-650/20 text-indigo-650 dark:text-indigo-400 text-[10px] font-bold rounded-xl transition-all flex items-center justify-center gap-1.5"
+                  >
+                    <Sparkles className="h-3 w-3" />
+                    呼叫 AI 导师对本题进行趣味小故事讲解
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* Modal Bottom Actions */}
+            <div className="flex items-center gap-3 border-t border-slate-100 dark:border-slate-800/80 pt-3">
               <button
-                onClick={() => setStatus("answering")}
-                className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-all flex items-center gap-1.5"
+                onClick={() => {
+                  setReportCard(null);
+                  setStatus("answering");
+                }}
+                className="flex-1 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition-all shadow-md shadow-indigo-500/10 flex items-center justify-center gap-1.5"
               >
                 <RefreshCw className="h-3.5 w-3.5" />
-                重新作答
+                重新作答挑战
+              </button>
+              <button
+                onClick={() => {
+                  setReportCard(null);
+                  setStatus("answering");
+                }}
+                className="px-5 py-3 rounded-2xl border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-all"
+              >
+                留在答题页
               </button>
             </div>
 
           </div>
-        )}
-      </div>
-
-      {/* Footer Actions (Answering Mode) */}
-      {status === "answering" && (
-        <div className="border-t border-slate-100 dark:border-slate-800 pt-4 flex items-center justify-end">
-          <button
-            onClick={handleCheckAnswers}
-            disabled={isSubmitting || (lab.lab_type === "match" && Object.keys(matches).length === 0)}
-            className="px-6 py-2.5 rounded-xl bg-slate-900 dark:bg-indigo-600 hover:bg-slate-800 dark:hover:bg-indigo-700 text-white font-bold text-xs transition-all disabled:opacity-40 disabled:pointer-events-none shadow-sm flex items-center gap-1.5"
-          >
-            {isSubmitting ? "正在评测提交..." : "提交答题评测"}
-          </button>
         </div>
       )}
 

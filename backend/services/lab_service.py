@@ -43,6 +43,7 @@ class LabService:
                 "difficulty": lab.difficulty,
                 "lab_type": lab.lab_type,
                 "node_id": str(lab.node_id) if lab.node_id else None,
+                "test_cases": lab.test_cases,
             }
             for lab in labs
         ]

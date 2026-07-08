@@ -4,6 +4,7 @@ from typing import AsyncIterable, Optional, Dict, Any, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import SecretStr
 
+from core.config import settings
 from services.rag_service import rag_service
 from services.memory_service import memory_service
 from services.tools_service import tools_service
@@ -216,20 +217,24 @@ class LLMService:
         # Add current user message
         messages.append({"role": "user", "content": message})
 
+        # 前端未配置 API Key 时，回退到后端 .env 中的系统级密钥
+        effective_api_key = api_key or settings.DEEPSEEK_API_KEY
+        effective_base_url = base_url or settings.DEEPSEEK_BASE_URL
+
         # Prepare litellm model name (add openai/ prefix when using custom base_url)
-        litellm_model = model
-        if base_url and not model.startswith("openai/"):
-            litellm_model = f"openai/{model}"
+        litellm_model = model or settings.DEEPSEEK_MODEL
+        if effective_base_url and not litellm_model.startswith("openai/"):
+            litellm_model = f"openai/{litellm_model}"
 
         kwargs: Dict[str, Any] = {
             "model": litellm_model,
             "messages": messages,
-            "api_key": api_key,
+            "api_key": effective_api_key,
             "stream": True,
         }
 
-        if base_url:
-            kwargs["api_base"] = base_url
+        if effective_base_url:
+            kwargs["api_base"] = effective_base_url
 
         if use_tools:
             kwargs["tools"] = tools_service.get_tools()

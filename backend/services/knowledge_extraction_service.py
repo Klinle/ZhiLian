@@ -215,12 +215,12 @@ class KnowledgeExtractionService:
 ## 注意事项
 1. 每个节点的 code 必须是大写英文+下划线格式，唯一且具有描述性
 2. category 必须是以下六大计算机领域之一：
-   - "programming": 终端游戏与工具（变量、循环控制流、内置容器、函数参数解包、异常捕获等基础）
-   - "dsa": 益智游戏数据（列表生成推导式、装饰器切面、迭代器生成器、垃圾回收管理、反射反射元编程等高级）
-   - "organization": 街机游戏设计（类与实例、面向对象继承多态MRO、魔术方法重载、属性拦截、__slots__优化等结构）
-   - "os": 实时动作并发（Pathlib文件IO、GIL锁原理、多线程并发、多进程并行、asyncio协程、并发池等系统并发）
-   - "network": 联机对战服务（Socket网络通信、requests请求、FastAPI Web API、网关协议、序列化、虚拟环境等联机）
-   - "database": 数据与工程（SQLite嵌入式、SQLAlchemy ORM、pytest单元测试、NumPy/Pandas矩阵与数据清洗分析等）
+   - "programming": 编程开发基础（变量、循环控制流、内置容器、函数参数解包、异常捕获等基础）
+   - "dsa": 数据结构与高级特性（列表生成推导式、装饰器切面、迭代器生成器、垃圾回收管理、反射反射元编程等高级）
+   - "organization": 面向对象与系统架构（类与实例、面向对象继承多态MRO、魔术方法重载、属性拦截、__slots__优化等结构）
+   - "os": 并发编程与操作系统（Pathlib文件IO、GIL锁原理、多线程并发、多进程并行、asyncio协程、并发池等系统并发）
+   - "network": 网络编程与联机服务（Socket网络通信、requests请求、FastAPI Web API、网关协议、序列化、虚拟环境等联机）
+   - "database": 数据工程与持久化（SQLite嵌入式、SQLAlchemy ORM、pytest单元测试、NumPy/Pandas矩阵与数据清洗分析等）
 3. relation_type 只能是 "requires"（前置依赖）或 "extends"（扩展延伸）
 4. 只提取真正重要的知识点，每个批次最多提取 5 个节点
 5. 如果文本中没有明显的知识点，返回空数组：{{"nodes": [], "relations": []}}
@@ -280,6 +280,26 @@ class KnowledgeExtractionService:
 
         此为通用电子书学习 MVP 模式核心逻辑，时间优先，节点限定为 12 个。
         """
+        # 0. 查找文档关联的知识库 ID，并判定排重
+        doc = await session.get(Document, document_id)
+        if not doc or not doc.knowledge_base_id:
+            print(f"[BookExtraction] 文档不存在或未关联任何分类知识库: {document_id}")
+            return {"nodes_created": 0, "relations_created": 0}
+        
+        kb_id = doc.knowledge_base_id
+        
+        # 检查该知识库下是否已经提炼过主线节点
+        stmt_exist = select(KnowledgeNode).where(
+            and_(
+                KnowledgeNode.source == "learning_path",
+                KnowledgeNode.knowledge_base_id == kb_id
+            )
+        ).limit(1)
+        exist_res = await session.execute(stmt_exist)
+        if exist_res.scalars().first():
+            print(f"[BookExtraction] 知识库 {kb_id} 已经存在通关技能树，跳过自动生成图谱。")
+            return {"nodes_created": 0, "relations_created": 0}
+
         # 1. 提取文档前 5 个分块（通常包含目录、大纲或核心概述，约 6000 字符内）
         stmt = select(DocumentChunk).where(
             DocumentChunk.document_id == document_id
@@ -375,7 +395,7 @@ class KnowledgeExtractionService:
                     category = "programming"
 
                 # 拼接唯一 code 防止不同书籍在数据库唯一键冲突
-                code = f"{orig_code}_{suffix}"
+                code = f"{orig_code}_{kb_id.hex[:6]}"
 
                 node = KnowledgeNode(
                     code=code,
@@ -384,7 +404,8 @@ class KnowledgeExtractionService:
                     description=description,
                     pagerank_weight=1.0,
                     source="learning_path",
-                    document_id=document_id
+                    document_id=document_id,
+                    knowledge_base_id=kb_id
                 )
                 session.add(node)
                 await session.flush()

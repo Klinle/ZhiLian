@@ -120,14 +120,13 @@ class ProfileService:
         )
         result_cat_total = await session.execute(stmt_cat_total)
         cat_totals = {row[0]: row[1] for row in result_cat_total.all()}
-
         category_mapping = {
-            "programming": "终端游戏与工具",
-            "dsa": "益智游戏数据",
-            "organization": "街机游戏设计",
-            "os": "实时动作并发",
-            "network": "联机对战服务",
-            "database": "数据与工程"
+            "programming": "编程开发基础",
+            "dsa": "数据结构与高级特性",
+            "organization": "面向对象与系统架构",
+            "os": "并发编程与操作系统",
+            "network": "网络编程与联机服务",
+            "database": "数据工程与持久化"
         }
 
         radar_data = []

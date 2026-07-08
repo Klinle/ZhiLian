@@ -25,6 +25,7 @@ interface StudyPanelProps {
   radarData: RadarData | null;
   onSelectNode: (nodeId: string) => void;
   onQuizPassed?: () => void; // Quiz 回答正确后的回调，用于刷新技能树
+  selectedNodeId?: string; // 当前选中的知识节点 ID，Quick Quiz 为该节点出题
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -41,6 +42,7 @@ export default function StudyPanel({
   radarData,
   onSelectNode,
   onQuizPassed,
+  selectedNodeId,
 }: StudyPanelProps) {
   const [mounted, setMounted] = useState(false);
   
@@ -58,12 +60,12 @@ export default function StudyPanel({
     setMounted(true);
   }, []);
 
-  // 懒加载加载第一个 Quiz
+  // 懒加载加载第一个 Quiz，选中节点变化时重新出题
   useEffect(() => {
     if (mounted) {
       loadQuiz();
     }
-  }, [mounted]);
+  }, [mounted, selectedNodeId]);
 
   const loadQuiz = async () => {
     setIsLoadingQuiz(true);
@@ -76,6 +78,7 @@ export default function StudyPanel({
         api_key: apiKey,
         model: model,
         base_url: activeModel?.provider ? baseUrls[activeModel.provider] : undefined,
+        node_id: selectedNodeId,
       });
       setQuiz(res);
     } catch (err) {

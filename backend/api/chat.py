@@ -84,6 +84,7 @@ async def chat(
             model=request.model,
             base_url=request.baseUrl,
             agent_id=request.agentId,
+            user_id=user_id,
         )
         if agent_name:
             print(f"[Agent Router] Routed to: {agent_name}")
@@ -184,6 +185,7 @@ async def chat_with_rag(
             model=request.model,
             base_url=request.baseUrl,
             agent_id=request.agentId,
+            user_id=user_id,
         )
         if agent_name:
             print(f"[Agent Router] Routed to: {agent_name}")

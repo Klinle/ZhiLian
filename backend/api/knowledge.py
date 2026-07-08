@@ -15,19 +15,19 @@ router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
 @router.get("/graph")
 async def get_knowledge_graph(
-    document_id: Optional[str] = None,
+    knowledge_base_id: Optional[str] = None,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
     """返回学习路线 nodes + relations + 当前用户 UserKnowledgeState"""
-    parsed_doc_id = None
-    if document_id:
+    parsed_kb_id = None
+    if knowledge_base_id:
         try:
-            parsed_doc_id = UUID(document_id)
+            parsed_kb_id = UUID(knowledge_base_id)
         except ValueError:
-            raise HTTPException(400, "Invalid document_id format")
+            raise HTTPException(400, "Invalid knowledge_base_id format")
 
-    return await knowledge_service.get_graph_data(session, current_user.id, parsed_doc_id)
+    return await knowledge_service.get_graph_data(session, current_user.id, parsed_kb_id)
 
 
 @router.get("/nodes/{node_id}/labs")

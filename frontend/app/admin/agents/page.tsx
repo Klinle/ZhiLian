@@ -12,7 +12,7 @@ export default function AdminAgentsPage() {
   const [editingAgent, setEditingAgent] = useState<any>(null);
   const [formData, setFormData] = useState({
     name: "",
-    role_type: "rag_mentor",
+    role_type: "humor_mentor",
     system_prompt: "",
     description: "",
     is_active: 1,
@@ -36,7 +36,7 @@ export default function AdminAgentsPage() {
   const resetForm = () => {
     setFormData({
       name: "",
-      role_type: "rag_mentor",
+      role_type: "humor_mentor",
       system_prompt: "",
       description: "",
       is_active: 1,
@@ -49,7 +49,7 @@ export default function AdminAgentsPage() {
     setEditingAgent(agent);
     setFormData({
       name: agent.name || "",
-      role_type: agent.role_type || "rag_mentor",
+      role_type: agent.role_type || "humor_mentor",
       system_prompt: agent.system_prompt || "",
       description: agent.description || "",
       is_active: agent.is_active ?? 1,
@@ -208,9 +208,9 @@ export default function AdminAgentsPage() {
                     onChange={(e) => setFormData({ ...formData, role_type: e.target.value })}
                     className="w-full text-sm px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
                   >
-                    <option value="rag_mentor">rag_mentor</option>
-                    <option value="langgraph_mentor">langgraph_mentor</option>
-                    <option value="llmops_mentor">llmops_mentor</option>
+                    <option value="humor_mentor">humor_mentor</option>
+                    <option value="academic_mentor">academic_mentor</option>
+                    <option value="coach_mentor">coach_mentor</option>
                   </select>
                 </div>
                 <div>

@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Any
 from datetime import datetime
 
 
@@ -131,8 +131,8 @@ class CollectionExerciseCreate(BaseModel):
     node_id: Optional[str] = None
     title: str
     exercise_type: str
-    content: dict
-    answer: dict
+    content: Any
+    answer: Any
     explanation: Optional[str] = None
 
 
@@ -141,8 +141,8 @@ class CollectionExerciseResponse(BaseModel):
     node_id: Optional[str] = None
     title: str
     exercise_type: str
-    content: dict
-    answer: dict
+    content: Any
+    answer: Any
     explanation: Optional[str] = None
     created_at: datetime
 

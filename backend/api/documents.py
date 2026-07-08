@@ -1,7 +1,7 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, and_
 from typing import List
 import os
 import asyncio
@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 
 from core.database import get_session, async_session_maker
 from core.dependencies import get_current_user
-from models.database import Document, DocumentChunk, User
+from models.database import Document, DocumentChunk, User, KnowledgeBase
 from models.schemas import DocumentResponse, DocumentListResponse
 from services.document_service import document_service
 from services.embedding_service import embedding_service
@@ -144,6 +144,7 @@ async def upload_document(
     provider: str = "openai",
     base_url: str = "",
     use_local_embedding: bool = False,
+    knowledge_base_id: str = Form(None),
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
@@ -170,6 +171,15 @@ async def upload_document(
         # Save document
         file_path, _ = await document_service.save_document(file.filename, content)
 
+        # 检查并转换 knowledge_base_id 为 UUID
+        parsed_kb_id = None
+        if knowledge_base_id:
+            try:
+                from uuid import UUID
+                parsed_kb_id = UUID(knowledge_base_id)
+            except ValueError:
+                pass
+
         # Create document record
         document = Document(
             title=file.filename,
@@ -178,6 +188,7 @@ async def upload_document(
             status="processing",
             owner_id=current_user.id,
             visibility="private",
+            knowledge_base_id=parsed_kb_id
         )
         session.add(document)
         await session.commit()
@@ -219,7 +230,8 @@ async def list_documents(
 
     from sqlalchemy import or_
 
-    stmt = select(Document)
+    from sqlalchemy.orm import selectinload
+    stmt = select(Document).options(selectinload(Document.knowledge_base))
     if scope == "mine":
         stmt = stmt.where(Document.owner_id == current_user.id)
     elif scope == "shared":
@@ -678,3 +690,58 @@ async def search_documents(
         }
         for chunk in chunks
     ]
+
+
+from pydantic import BaseModel
+class KnowledgeBaseCreateSchema(BaseModel):
+    name: str
+    description: str = ""
+
+@router.get("/kb")
+async def list_knowledge_bases(
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """获取用户已创建的以及系统内置的分类知识库列表"""
+    from sqlalchemy import or_
+    stmt = select(KnowledgeBase).where(
+        or_(
+            KnowledgeBase.owner_id == current_user.id,
+            KnowledgeBase.owner_id.is_(None)
+        )
+    ).order_by(KnowledgeBase.created_at.desc())
+    res = await session.execute(stmt)
+    kbs = res.scalars().all()
+    return [
+        {
+            "id": str(kb.id),
+            "name": kb.name,
+            "description": kb.description or "",
+            "created_at": kb.created_at.isoformat(),
+            "owner_id": str(kb.owner_id) if kb.owner_id else None
+        }
+        for kb in kbs
+    ]
+
+@router.post("/kb")
+async def create_knowledge_base(
+    req: KnowledgeBaseCreateSchema,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """新建一个分类知识库"""
+    import uuid
+    kb = KnowledgeBase(
+        id=uuid.uuid4(),
+        name=req.name,
+        description=req.description,
+        owner_id=current_user.id
+    )
+    session.add(kb)
+    await session.commit()
+    return {
+        "id": str(kb.id),
+        "name": kb.name,
+        "description": kb.description,
+        "owner_id": str(kb.owner_id)
+    }

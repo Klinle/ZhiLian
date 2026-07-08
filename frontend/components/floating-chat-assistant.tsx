@@ -26,6 +26,7 @@ import {
 import { WorkflowPanel } from "@/components/workflow-panel";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { PixelAgentAvatar } from "./pixel-agent-avatar";
 
 export default function FloatingChatAssistant() {
   const {
@@ -76,6 +77,169 @@ export default function FloatingChatAssistant() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const agentMenuRef = useRef<HTMLDivElement>(null);
+
+  // 拖动悬浮球相关的状态
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [isMounted, setIsMounted] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStart = useRef({ x: 0, y: 0, posX: 0, posY: 0, time: 0 });
+
+  // 初始化加载位置
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsMounted(true);
+      const savedX = localStorage.getItem("chat_assistant_x");
+      const savedY = localStorage.getItem("chat_assistant_y");
+      const padding = 24;
+      const buttonSize = 56;
+      
+      let initX = window.innerWidth - buttonSize - padding;
+      let initY = window.innerHeight - buttonSize - padding;
+      
+      if (savedX !== null && savedY !== null) {
+        const xVal = Number(savedX);
+        const yVal = Number(savedY);
+        initX = Math.max(0, Math.min(xVal, window.innerWidth - buttonSize));
+        initY = Math.max(0, Math.min(yVal, window.innerHeight - buttonSize));
+      }
+      setPosition({ x: initX, y: initY });
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  // 响应式大小监听
+  useEffect(() => {
+    if (!isMounted) return;
+    
+    const handleResize = () => {
+      const buttonSize = 56;
+      const padding = 24;
+      
+      setPosition((prev) => {
+        const isLeft = (prev.x + buttonSize / 2) < window.innerWidth / 2;
+        const newX = isLeft ? padding : window.innerWidth - buttonSize - padding;
+        const newY = Math.max(padding, Math.min(prev.y, window.innerHeight - buttonSize - padding));
+        return { x: newX, y: newY };
+      });
+    };
+    
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [isMounted]);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+    dragStart.current = {
+      x: e.clientX,
+      y: e.clientY,
+      posX: position.x,
+      posY: position.y,
+      time: 0,
+    };
+    
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  };
+
+  const handleMouseMove = (e: MouseEvent) => {
+    const deltaX = e.clientX - dragStart.current.x;
+    const deltaY = e.clientY - dragStart.current.y;
+    
+    let newX = dragStart.current.posX + deltaX;
+    let newY = dragStart.current.posY + deltaY;
+    
+    const buttonSize = 56;
+    newX = Math.max(0, Math.min(newX, window.innerWidth - buttonSize));
+    newY = Math.max(0, Math.min(newY, window.innerHeight - buttonSize));
+    
+    setPosition({ x: newX, y: newY });
+  };
+
+  const handleMouseUp = (e: MouseEvent) => {
+    document.removeEventListener("mousemove", handleMouseMove);
+    document.removeEventListener("mouseup", handleMouseUp);
+    setIsDragging(false);
+    
+    const deltaX = e.clientX - dragStart.current.x;
+    const deltaY = e.clientY - dragStart.current.y;
+    const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+    
+    if (distance < 6) {
+      useChatAssistantStore.getState().openAssistant();
+      return;
+    }
+    
+    snapToEdge(position.x, position.y);
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    setIsDragging(true);
+    const touch = e.touches[0];
+    dragStart.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+      posX: position.x,
+      posY: position.y,
+      time: 0,
+    };
+    
+    document.addEventListener("touchmove", handleTouchMove, { passive: false });
+    document.addEventListener("touchend", handleTouchEnd);
+  };
+
+  const handleTouchMove = (e: TouchEvent) => {
+    e.preventDefault();
+    const touch = e.touches[0];
+    const deltaX = touch.clientX - dragStart.current.x;
+    const deltaY = touch.clientY - dragStart.current.y;
+    
+    let newX = dragStart.current.posX + deltaX;
+    let newY = dragStart.current.posY + deltaY;
+    
+    const buttonSize = 56;
+    newX = Math.max(0, Math.min(newX, window.innerWidth - buttonSize));
+    newY = Math.max(0, Math.min(newY, window.innerHeight - buttonSize));
+    
+    setPosition({ x: newX, y: newY });
+  };
+
+  const handleTouchEnd = (e: TouchEvent) => {
+    document.removeEventListener("touchmove", handleTouchMove);
+    document.removeEventListener("touchend", handleTouchEnd);
+    setIsDragging(false);
+    
+    const touch = e.changedTouches[0];
+    const deltaX = touch.clientX - dragStart.current.x;
+    const deltaY = touch.clientY - dragStart.current.y;
+    const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+    
+    if (distance < 6) {
+      useChatAssistantStore.getState().openAssistant();
+      return;
+    }
+    
+    snapToEdge(position.x, position.y);
+  };
+
+  const snapToEdge = (currentX: number, currentY: number) => {
+    const buttonSize = 56;
+    const padding = 24;
+    const centerX = currentX + buttonSize / 2;
+    
+    const isLeft = centerX < window.innerWidth / 2;
+    const targetX = isLeft ? padding : window.innerWidth - buttonSize - padding;
+    
+    let targetY = currentY;
+    targetY = Math.max(padding, Math.min(targetY, window.innerHeight - buttonSize - padding));
+    
+    setPosition({ x: targetX, y: targetY });
+    localStorage.setItem("chat_assistant_x", String(targetX));
+    localStorage.setItem("chat_assistant_y", String(targetY));
+  };
+
+  const isLeftAligned = isMounted && (position.x + 28) < window.innerWidth / 2;
 
   // 初始化获取对话列表
   useEffect(() => {
@@ -258,24 +422,32 @@ export default function FloatingChatAssistant() {
   };
 
   if (!isOpen) {
-    // 收起形态：右下角极光悬浮球
+    // 收起形态：可拖动 8-bit 卡通像素人（采用完全透明背景，松开吸附边缘）
     return (
       <button
-        onClick={() => useChatAssistantStore.getState().openAssistant()}
-        className="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-gradient-to-tr from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white flex items-center justify-center shadow-lg shadow-indigo-300 dark:shadow-none hover:shadow-xl hover:scale-105 transition-all z-50 animate-pulse cursor-pointer group"
+        onMouseDown={handleMouseDown}
+        onTouchStart={handleTouchStart}
+        style={
+          isMounted
+            ? { left: `${position.x}px`, top: `${position.y}px` }
+            : undefined
+        }
+        className={`fixed w-14 h-14 bg-transparent border-none outline-none flex items-center justify-center hover:scale-110 active:scale-95 z-50 cursor-pointer group select-none touch-none ${
+          isMounted ? "" : "bottom-6 right-6"
+        } ${isDragging ? "" : "transition-all duration-300"}`}
         title="召唤 AI 导师"
       >
-        <Sparkles className="h-6 w-6 group-hover:rotate-12 transition-transform" />
+        <PixelAgentAvatar agentId={selectedAgentId} className="w-12 h-12 pointer-events-none" />
       </button>
     );
   }
 
   // 导师风格映射
   const agentDisplayNames: Record<string, string> = {
-    auto: "自动导师",
-    humor_mentor: "幽默大师",
-    academic_mentor: "严谨教授",
-    coach_mentor: "实战教练",
+    auto: "小航 (智能路由)",
+    humor_mentor: "小柴 (柴犬)",
+    academic_mentor: "小鹰 (猫头鹰)",
+    coach_mentor: "小铁 (机器人)",
   };
 
   return (
@@ -292,14 +464,16 @@ export default function FloatingChatAssistant() {
         className={`fixed z-50 flex flex-col overflow-hidden transition-all duration-300 animate-in ${
           isExpanded
             ? "inset-0 m-auto w-[min(700px,95vw)] h-[85vh] rounded-2xl shadow-2xl fade-in zoom-in-95"
-            : "bottom-6 right-6 w-[400px] h-[600px] rounded-2xl shadow-2xl slide-in-from-bottom-6 fade-in"
+            : `${
+                isLeftAligned ? "bottom-6 left-6 slide-in-from-left-6" : "bottom-6 right-6 slide-in-from-right-6"
+              } w-[400px] h-[600px] rounded-2xl shadow-2xl fade-in`
         } bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md border border-gray-200 dark:border-zinc-800`}
       >
       {/* 头部 */}
       <div className="p-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white flex items-center justify-between shadow-md">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
-            <Bot className="h-5 w-5" />
+          <div className="w-9 h-9 rounded-xl bg-transparent flex items-center justify-center p-[2px]">
+            <PixelAgentAvatar agentId={selectedAgentId} className="w-full h-full" />
           </div>
           <div>
             <h3 className="font-bold text-sm leading-none flex items-center gap-1.5">
@@ -523,8 +697,8 @@ export default function FloatingChatAssistant() {
                 className={`flex gap-2.5 ${isUser ? "justify-end" : "justify-start"}`}
               >
                 {!isUser && (
-                  <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
-                    <Bot className="h-4 w-4" />
+                  <div className="w-8 h-8 rounded-lg bg-transparent flex items-center justify-center shrink-0 p-[1px] overflow-hidden border border-transparent">
+                    <PixelAgentAvatar agentId={selectedAgentId} className="w-full h-full" />
                   </div>
                 )}
                 <div
