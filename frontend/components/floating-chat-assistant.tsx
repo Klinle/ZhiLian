@@ -83,6 +83,8 @@ export default function FloatingChatAssistant() {
   const [isMounted, setIsMounted] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0, posX: 0, posY: 0, time: 0 });
+  // 用 ref 同步追踪最新位置，规避 mouseup 回调中的闭包陷阱
+  const positionRef = useRef({ x: 0, y: 0 });
 
   // 初始化加载位置
   useEffect(() => {
@@ -103,6 +105,7 @@ export default function FloatingChatAssistant() {
         initY = Math.max(0, Math.min(yVal, window.innerHeight - buttonSize));
       }
       setPosition({ x: initX, y: initY });
+      positionRef.current = { x: initX, y: initY };
     }, 0);
 
     return () => clearTimeout(timer);
@@ -120,6 +123,7 @@ export default function FloatingChatAssistant() {
         const isLeft = (prev.x + buttonSize / 2) < window.innerWidth / 2;
         const newX = isLeft ? padding : window.innerWidth - buttonSize - padding;
         const newY = Math.max(padding, Math.min(prev.y, window.innerHeight - buttonSize - padding));
+        positionRef.current = { x: newX, y: newY };
         return { x: newX, y: newY };
       });
     };
@@ -154,6 +158,7 @@ export default function FloatingChatAssistant() {
     newX = Math.max(0, Math.min(newX, window.innerWidth - buttonSize));
     newY = Math.max(0, Math.min(newY, window.innerHeight - buttonSize));
     
+    positionRef.current = { x: newX, y: newY };
     setPosition({ x: newX, y: newY });
   };
 
@@ -171,7 +176,8 @@ export default function FloatingChatAssistant() {
       return;
     }
     
-    snapToEdge(position.x, position.y);
+    // 从 ref 读取最新位置，规避闭包陷阱
+    snapToEdge(positionRef.current.x, positionRef.current.y);
   };
 
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -202,6 +208,7 @@ export default function FloatingChatAssistant() {
     newX = Math.max(0, Math.min(newX, window.innerWidth - buttonSize));
     newY = Math.max(0, Math.min(newY, window.innerHeight - buttonSize));
     
+    positionRef.current = { x: newX, y: newY };
     setPosition({ x: newX, y: newY });
   };
 
@@ -220,7 +227,8 @@ export default function FloatingChatAssistant() {
       return;
     }
     
-    snapToEdge(position.x, position.y);
+    // 从 ref 读取最新位置，规避闭包陷阱
+    snapToEdge(positionRef.current.x, positionRef.current.y);
   };
 
   const snapToEdge = (currentX: number, currentY: number) => {
@@ -235,6 +243,7 @@ export default function FloatingChatAssistant() {
     targetY = Math.max(padding, Math.min(targetY, window.innerHeight - buttonSize - padding));
     
     setPosition({ x: targetX, y: targetY });
+    positionRef.current = { x: targetX, y: targetY };
     localStorage.setItem("chat_assistant_x", String(targetX));
     localStorage.setItem("chat_assistant_y", String(targetY));
   };

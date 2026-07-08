@@ -22,13 +22,15 @@ class ProfileService:
     ) -> dict:
         """聚合统计：点亮节点数 / 实验通过率 / 学习时长 / 记忆数"""
 
-        # 1. 点亮节点数
+        # 1. 点亮节点数（仅统计 learning_path 种子节点，排除 extraction 自动提取节点）
         stmt_lighted = (
             select(func.count(UserKnowledgeState.id))
+            .join(KnowledgeNode, UserKnowledgeState.node_id == KnowledgeNode.id)
             .where(
                 and_(
                     UserKnowledgeState.user_id == user_id,
                     UserKnowledgeState.is_lighted == 1,
+                    KnowledgeNode.source == "learning_path",
                 )
             )
         )
@@ -92,7 +94,7 @@ class ProfileService:
     ) -> dict:
         """六方向（计算机基础）能力维度数据"""
 
-        # 获取用户已点亮节点 + 按分类聚合
+        # 获取用户已点亮节点 + 按分类聚合（仅统计 learning_path 种子节点）
         stmt = (
             select(UserKnowledgeState, KnowledgeNode.category)
             .join(KnowledgeNode, UserKnowledgeState.node_id == KnowledgeNode.id)
@@ -100,6 +102,7 @@ class ProfileService:
                 and_(
                     UserKnowledgeState.user_id == user_id,
                     UserKnowledgeState.is_lighted == 1,
+                    KnowledgeNode.source == "learning_path",
                 )
             )
         )

@@ -386,8 +386,9 @@ export default function ExerciseRenderer({
               node_id: d.rawCard.node_id || undefined,
               title: d.rawCard.title,
               exercise_type: d.rawCard.lab_type,
-              content: d.rawCard.test_cases,
-              answer: d.rawCard.answer || d.rawCard.test_cases?.pairs || d.rawCard.test_cases?.correct_order || d.rawCard.test_cases?.blanks || {},
+              // 使用已解析的 test_cases（getSafeTestCases 保证返回对象），避免列表数据缺字段
+              content: d.test_cases || {},
+              answer: d.rawCard.answer || d.test_cases?.pairs || d.test_cases?.correct_order || d.test_cases?.blanks || {},
               explanation: d.rawCard.detailed_explanation
             });
           }

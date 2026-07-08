@@ -20,7 +20,19 @@ async def collect_exercise(
     """收藏一道题目（如 Agent 动态生成的匹配、排序、选择或代码题）"""
     try:
         exercise = await collection_service.collect_exercise(session, current_user.id, schema)
-        return exercise
+        # 手动序列化，确保 UUID/datetime 正确转换
+        return CollectionExerciseResponse(
+            id=str(exercise.id),
+            node_id=str(exercise.node_id) if exercise.node_id else None,
+            title=exercise.title,
+            exercise_type=exercise.exercise_type,
+            content=exercise.content,
+            answer=exercise.answer,
+            explanation=exercise.explanation,
+            created_at=exercise.created_at,
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(500, f"收藏题目失败: {str(e)}")
 
@@ -30,7 +42,26 @@ async def get_collections(
     current_user: User = Depends(get_current_user),
 ):
     """获取用户收藏的全部题目"""
-    return await collection_service.get_collections(session, current_user.id)
+    try:
+        items = await collection_service.get_collections(session, current_user.id)
+        # 手动序列化，确保 UUID/datetime 正确转换
+        return [
+            CollectionExerciseResponse(
+                id=str(item.id),
+                node_id=str(item.node_id) if item.node_id else None,
+                title=item.title,
+                exercise_type=item.exercise_type,
+                content=item.content,
+                answer=item.answer,
+                explanation=item.explanation,
+                created_at=item.created_at,
+            )
+            for item in items
+        ]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"获取收藏列表失败: {str(e)}")
 
 @router.delete("/{collection_id}")
 async def delete_collection(

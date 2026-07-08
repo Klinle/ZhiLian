@@ -269,9 +269,18 @@ function PracticeContent() {
 
   // 联动收藏与取消收藏
   const handleToggleCollect = async (targetLab?: any) => {
-    const labToCollect = targetLab || selectedLab;
+    let labToCollect = targetLab || selectedLab;
     if (!labToCollect) return;
     try {
+      // 列表接口不返回 test_cases，收藏前先获取完整数据
+      if (!labToCollect.test_cases && labToCollect.id && exerciseMode === "system") {
+        try {
+          const fullLab = await labApi.getLab(labToCollect.id);
+          labToCollect = fullfillLabType(fullLab) || labToCollect;
+        } catch (err) {
+          console.error("Failed to fetch full lab for collection:", err);
+        }
+      }
       const colList = await collectionApi.listCollections();
       const match = colList.find((c: any) => c.title === labToCollect.title);
       
@@ -288,7 +297,7 @@ function PracticeContent() {
           node_id: labToCollect.node_id || undefined,
           title: labToCollect.title,
           exercise_type: labToCollect.lab_type,
-          content: labToCollect.test_cases,
+          content: labToCollect.test_cases || {},
           answer: labToCollect.answer || labToCollect.test_cases?.pairs || labToCollect.test_cases?.correct_order || labToCollect.test_cases?.blanks || {},
           explanation: labToCollect.detailed_explanation
         });
@@ -615,7 +624,7 @@ function PracticeContent() {
 
                   {handleToggleCollect && (
                     <button
-                      onClick={handleToggleCollect}
+                      onClick={() => handleToggleCollect(selectedLab)}
                       className={cn(
                         "p-2 rounded-xl border transition-all duration-200",
                         isCollected

@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional, List, Any
 from datetime import datetime
+from uuid import UUID
 
 
 class ChatMessage(BaseModel):
@@ -137,8 +138,10 @@ class CollectionExerciseCreate(BaseModel):
 
 
 class CollectionExerciseResponse(BaseModel):
-    id: str
-    node_id: Optional[str] = None
+    # 启用 ORM 模式，允许从 SQLAlchemy 模型对象直接序列化
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    node_id: Optional[UUID] = None
     title: str
     exercise_type: str
     content: Any
