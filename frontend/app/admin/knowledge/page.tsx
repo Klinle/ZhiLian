@@ -491,24 +491,38 @@ export default function AdminKnowledgePage() {
         </div>
 
         {/* 标题 */}
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-white">知识库管理</h1>
-          <p className="text-xs text-slate-500 mt-1">上传文档自动解析→分块→向量化→知识节点提取，使用本地嵌入模型（BGE-M3）</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">知识库管理</h1>
+            <p className="text-[11px] text-slate-500 mt-0.5">上传文档自动解析 → 分块 → 向量化 → 知识节点提取（BGE-M3 本地嵌入模型）</p>
+          </div>
+          <span className="flex items-center gap-1.5 text-[10px] text-indigo-500 bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-1 rounded-full font-mono font-medium">
+            <FileText className="h-3 w-3" />
+            {stats.total} 篇文档
+          </span>
         </div>
 
         {/* 统计卡片 */}
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[
-            { label: "文档总数", value: stats.total, color: "text-indigo-500" },
-            { label: "已启用", value: stats.active, color: "text-emerald-500" },
-            { label: "处理中", value: stats.processing, color: "text-amber-500" },
-            { label: "失败", value: stats.failed, color: "text-rose-500" },
-          ].map((item) => (
-            <div key={item.label} className="bg-white dark:bg-[#121424] border border-slate-200 dark:border-[#1f233a] rounded-xl p-4">
-              <div className={`text-2xl font-bold ${item.color}`}>{item.value}</div>
-              <div className="text-xs text-slate-400 mt-1">{item.label}</div>
-            </div>
-          ))}
+            { label: "文档总数", value: stats.total, icon: FileText, color: "text-indigo-400", bg: "bg-indigo-500/10", border: "border-indigo-500/20" },
+            { label: "已启用", value: stats.active, icon: Check, color: "text-emerald-400", bg: "bg-emerald-500/10", border: "border-emerald-500/20" },
+            { label: "处理中", value: stats.processing, icon: RotateCcw, color: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/20" },
+            { label: "失败", value: stats.failed, icon: AlertCircle, color: "text-rose-400", bg: "bg-rose-500/10", border: "border-rose-500/20" },
+          ].map((item) => {
+            const Icon = item.icon;
+            return (
+              <div key={item.label} className={`bg-white dark:bg-[#121424] border ${item.border} rounded-xl p-4 flex items-center gap-3`}>
+                <div className={`w-10 h-10 rounded-lg ${item.bg} border ${item.border} flex items-center justify-center shrink-0`}>
+                  <Icon className={`h-5 w-5 ${item.color}`} />
+                </div>
+                <div>
+                  <div className={`text-xl font-bold font-mono ${item.color}`}>{item.value}</div>
+                  <div className="text-[10px] text-slate-400">{item.label}</div>
+                </div>
+              </div>
+            );
+          })}
         </div>
 
         {/* 上传区域 */}

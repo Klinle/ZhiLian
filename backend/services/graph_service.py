@@ -101,18 +101,7 @@ class GraphService:
         model: str,
         base_url: Optional[str] = None,
     ) -> str:
-        """
-        使用 LLM 分析用户意图，分类到六大知识领域或 general
 
-        六大领域与 seed_data.py 的 category 完全对齐：
-        - programming: 变量、数据类型、控制流、函数、递归、作用域
-        - dsa: 数组、链表、栈、队列、树、图、排序、查找、时间复杂度
-        - organization: 二进制、指令系统、CPU、存储层次、总线
-        - os: 内存管理、进程线程、调度、并发同步、文件系统
-        - network: 分层模型、TCP/UDP、HTTP、路由、DNS
-        - database: 数据模型、SQL、索引、事务、范式
-        - general: 通用对话、闲聊、非计算机基础问题
-        """
         from openai import AsyncOpenAI
 
         effective_api_key = api_key or settings.DEEPSEEK_API_KEY

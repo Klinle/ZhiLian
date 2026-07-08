@@ -5,11 +5,20 @@ import AdminLayout from "@/components/admin-layout";
 import { adminApi } from "@/lib/api";
 import { Loader2, Plus, Pencil, Bot, X, Power } from "lucide-react";
 
+interface AgentRecord {
+  id: string;
+  name: string;
+  role_type: string;
+  system_prompt: string;
+  description?: string | null;
+  is_active: number;
+}
+
 export default function AdminAgentsPage() {
-  const [agents, setAgents] = useState<any[]>([]);
+  const [agents, setAgents] = useState<AgentRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [editingAgent, setEditingAgent] = useState<any>(null);
+  const [editingAgent, setEditingAgent] = useState<AgentRecord | null>(null);
   const [formData, setFormData] = useState({
     name: "",
     role_type: "humor_mentor",
@@ -45,7 +54,7 @@ export default function AdminAgentsPage() {
     setShowForm(false);
   };
 
-  const handleEdit = (agent: any) => {
+  const handleEdit = (agent: AgentRecord) => {
     setEditingAgent(agent);
     setFormData({
       name: agent.name || "",
@@ -80,7 +89,7 @@ export default function AdminAgentsPage() {
     }
   };
 
-  const handleToggleActive = async (agent: any) => {
+  const handleToggleActive = async (agent: AgentRecord) => {
     try {
       await adminApi.updateAgent(agent.id, { is_active: agent.is_active ? 0 : 1 });
       await fetchAgents();
@@ -94,8 +103,8 @@ export default function AdminAgentsPage() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-slate-900 dark:text-white">Agent 管理</h1>
-            <p className="text-xs text-slate-500 mt-1">管理智能导师 Agent 与系统提示词</p>
+            <h1 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Agent 管理</h1>
+            <p className="text-[11px] text-slate-500 mt-0.5">管理智能导师 Agent 与系统提示词</p>
           </div>
           <button
             onClick={() => {

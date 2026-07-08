@@ -1,12 +1,11 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import AdminLayout from "@/components/admin-layout";
-import { adminApi } from "@/lib/api";
-import { Users, FileText, MessageSquare, Award, Bot, Loader2, Sparkles, Activity, Trophy, TrendingUp, Zap } from "lucide-react";
+import { adminApi, API_BASE_URL, getAuthHeaders } from "@/lib/api";
+import { useSettingsStore, SUPPORTED_MODELS } from "@/stores/settings";
+import { Users, FileText, MessageSquare, Award, Bot, Loader2, Sparkles, Activity, Trophy, TrendingUp, Zap, AlertTriangle, CheckCircle2, Lightbulb } from "lucide-react";
 import ReactECharts from "echarts-for-react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 
 interface UserTrend {
   date: string;
@@ -41,9 +40,19 @@ interface DashboardStats {
 
 interface AiEvaluationResult {
   score: number;
+  grade: string;
   summary: string;
-  details: string;
+  highlights: string[];
+  risks: string[];
+  suggestions: { priority: string; title: string; detail: string }[];
 }
+
+const GRADE_COLORS: Record<string, string> = {
+  "优秀": "from-emerald-500 to-teal-500",
+  "良好": "from-indigo-500 to-purple-600",
+  "待改善": "from-amber-500 to-orange-500",
+  "预警": "from-rose-500 to-red-600",
+};
 
 interface DatabaseUser {
   id: string;
@@ -120,6 +129,13 @@ export default function AdminDashboardPage() {
   // AI 智能诊断状态
   const [evalLoading, setEvalLoading] = useState(false);
   const [evalResult, setEvalResult] = useState<AiEvaluationResult | null>(null);
+  const [evalError, setEvalError] = useState<string | null>(null);
+  const [evalStreamText, setEvalStreamText] = useState<string>("");
+  const evalAbortRef = useRef<AbortController | null>(null);
+
+  // 读取用户 API 配置
+  const { model, getEffectiveApiKey, baseUrls, selectedProvider } = useSettingsStore();
+  const apiKey = getEffectiveApiKey();
 
   const fetchStats = useCallback(async () => {
     try {
@@ -236,17 +252,176 @@ export default function AdminDashboardPage() {
     fetchStats();
   }, [fetchStats]);
 
+  const buildDiagnosisPrompt = (): string => {
+    if (!stats) return "";
+
+    // 排行榜 top 10 数据制成表格
+    const top10 = leaderboard.slice(0, 10);
+    const lbRows = top10.map((s, i) =>
+      `| ${i + 1} | ${s.name} | ${s.role} | ${s.nodesMastered}/${s.totalNodes} (${Math.round(s.nodesMastered / s.totalNodes * 100)}%) | ${s.exercisesPassed}题 | ${s.chatCount}次 | ${s.lastActive} |`
+    ).join("\n");
+
+    // 知识分类分布
+    const catDist = stats.category_distribution || {};
+    const catRows = Object.entries(catDist).map(([cat, val]: [string, CategoryStat]) =>
+      `- ${CATEGORY_LABELS[cat] || cat}: ${val.node_count}个节点, ${val.doc_count}篇文档, ${val.lab_count}道题`
+    ).join("\n");
+
+    // 题型通过率
+    const labDist = stats.lab_type_distribution || {};
+    const labRows = Object.entries(labDist).map(([t, val]: [string, LabTypeStat]) =>
+      `- ${LAB_TYPE_LABELS[t] || t}: 总${val.count}题 / 提交${val.submissions}次 / 通过${val.passed}次 (${val.submissions > 0 ? Math.round(val.passed / val.submissions * 100) : 0}%)`
+    ).join("\n");
+
+    return `你是 CogniLink 在线教育平台的专业运营分析师。以下是你当前在 Dashboard 页面中看到的所有实时运营数据快照。请基于这些数据进行深度综合分析，并严格输出一个 JSON 格式的诊断报告。
+
+【平台概览】
+- 注册用户: ${stats.users} 人
+- 文档总数: ${stats.documents} 篇
+- 累计对话: ${stats.conversations} 次
+- 实验提交: ${stats.submissions} 次
+- 题目总量: ${stats.labs} 道
+- AI 导师: ${stats.agents} 个
+
+【学员学习进度排行榜 (Top 10)】
+| 排名 | 姓名 | 角色 | 知识掌握度 | 通关习题 | 活跃对话 | 上次活跃 |
+|------|------|------|------------|----------|----------|----------|
+${lbRows}
+
+【知识分类覆盖分布】
+${catRows}
+
+【各题型完成率统计】
+${labRows}
+
+【分析要求】
+请严格按照以下 JSON 格式输出诊断结论，不要输出任何其他内容（不要用 markdown 代码块包裹）：
+
+{
+  "score": <0-100 的整数，系统综合健康评分>,
+  "grade": "<优秀|良好|待改善|预警>",
+  "summary": "<2-3 句话概括当前平台运营的整体状态>",
+  "highlights": ["<正向发现1，数据驱动，具体量化>", "<正向发现2>", "<正向发现3>"],
+  "risks": ["<需要关注的风险点1，有数据支撑>", "<风险点2>", "<风险点3>"],
+  "suggestions": [
+    { "priority": "高", "title": "<简短建议标题>", "detail": "<具体可执行的操作建议>" },
+    { "priority": "高", "title": "...", "detail": "..." },
+    { "priority": "中", "title": "...", "detail": "..." },
+    { "priority": "中", "title": "...", "detail": "..." },
+    { "priority": "低", "title": "...", "detail": "..." }
+  ]
+}
+
+分析要点：
+- 学员学习活跃度分布是否健康（关注低频/流失风险学员）
+- 知识体系覆盖是否存在明显短板
+- 各题型的通过率是否存在异常（如某题型通过率显著偏低）
+- 高分段和低分段学员的差距是否过大
+- 给出真正可落地执行的改进建议`;
+  };
+
   const handleStartAiEvaluation = async () => {
+    if (!apiKey) {
+      alert("请先在设置页面配置 API Key");
+      return;
+    }
+
     setEvalLoading(true);
+    setEvalError(null);
+    setEvalResult(null);
+    setEvalStreamText("");
+
+    const prompt = buildDiagnosisPrompt();
+    if (!prompt) {
+      setEvalLoading(false);
+      return;
+    }
+
+    const currentModel = SUPPORTED_MODELS.find((m) => m.id === model);
+    const provider = currentModel?.provider || selectedProvider;
+    const providerBaseUrls = baseUrls as Record<string, string>;
+    const baseUrl = providerBaseUrls[provider] || "";
+
+    const controller = new AbortController();
+    evalAbortRef.current = controller;
+
     try {
-      const data = await adminApi.getAiEvaluation();
-      setEvalResult(data);
-    } catch (error) {
-      console.error("Failed to run AI evaluation:", error);
-      alert("AI 运营诊断启动失败，请稍后重试");
+      const response = await fetch(`${API_BASE_URL}/api/chat/rag`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          message: prompt,
+          apiKey,
+          model,
+          baseUrl: baseUrl || undefined,
+          use_rag: false,
+          use_memory: false,
+          use_tools: false,
+          use_local_embedding: false,
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(errText || `HTTP ${response.status}`);
+      }
+
+      if (!response.body) {
+        throw new Error("响应体为空");
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let fullText = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        fullText += chunk;
+        setEvalStreamText(fullText);
+      }
+
+      // 尝试从返回文本中提取 JSON
+      let jsonStr = fullText.trim();
+      // 移除可能的 markdown 代码块包裹
+      const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (jsonMatch) {
+        jsonStr = jsonMatch[1].trim();
+      }
+      // 尝试找到第一个 { 到最后一个 }
+      const braceStart = jsonStr.indexOf("{");
+      const braceEnd = jsonStr.lastIndexOf("}");
+      if (braceStart !== -1 && braceEnd !== -1 && braceEnd > braceStart) {
+        jsonStr = jsonStr.slice(braceStart, braceEnd + 1);
+      }
+
+      const parsed = JSON.parse(jsonStr);
+
+      setEvalResult({
+        score: typeof parsed.score === "number" ? parsed.score : 0,
+        grade: parsed.grade || "待改善",
+        summary: parsed.summary || "",
+        highlights: Array.isArray(parsed.highlights) ? parsed.highlights : [],
+        risks: Array.isArray(parsed.risks) ? parsed.risks : [],
+        suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions : [],
+      });
+      setEvalStreamText("");
+    } catch (error: unknown) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      const errMsg = error instanceof Error ? error.message : "诊断请求失败，请检查 API Key 和网络连接";
+      console.error("AI diagnosis failed:", error);
+      setEvalError(errMsg);
+      setEvalStreamText("");
     } finally {
       setEvalLoading(false);
+      evalAbortRef.current = null;
     }
+  };
+
+  const handleAbortEvaluation = () => {
+    evalAbortRef.current?.abort();
   };
 
   const cards = [
@@ -481,14 +656,17 @@ export default function AdminDashboardPage() {
                   )}
                 </div>
 
-                {!evalResult && !evalLoading && (
+                {!evalResult && !evalLoading && !evalError && (
                   <div className="flex items-center justify-between gap-6 py-2">
                     <div className="flex-1 text-[11px] text-slate-500 leading-relaxed">
-                      AI 将对本平台的学员学习活跃率、各知识类别节点掌握饱满度、以及 RAG 导师的对话质量进行综合评估，生成详细运营改进建议与系统健康评分。
+                      AI 将对本页面的运营数据（平台概览、学员排行榜、知识分类覆盖、题型通过率）进行综合评估，生成详细运营改进建议与系统健康评分。<br />
+                      <span className="text-slate-400 mt-1 inline-block">需要已配置有效的 API Key（DeepSeek / GLM 等）。</span>
                     </div>
                     <button
                       onClick={handleStartAiEvaluation}
-                      className="shrink-0 flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold transition-all shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/30"
+                      disabled={!apiKey}
+                      className="shrink-0 flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold transition-all shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
+                      title={!apiKey ? "请先在设置页面配置 API Key" : undefined}
                     >
                       <Zap className="h-3.5 w-3.5" />
                       开启 AI 智能诊断
@@ -496,30 +674,142 @@ export default function AdminDashboardPage() {
                   </div>
                 )}
 
+                {evalError && !evalLoading && (
+                  <div className="flex items-center justify-between gap-6 py-3">
+                    <div className="flex items-center gap-2 text-[11px] text-rose-500">
+                      <AlertTriangle className="h-4 w-4 shrink-0" />
+                      <span>{evalError}</span>
+                    </div>
+                    <button
+                      onClick={handleStartAiEvaluation}
+                      className="shrink-0 flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/20 text-indigo-400 text-[10px] font-bold transition-all"
+                    >
+                      <Zap className="h-3 w-3" />
+                      重试
+                    </button>
+                  </div>
+                )}
+
                 {evalLoading && (
-                  <div className="flex flex-col items-center justify-center text-center py-8 space-y-3">
-                    <Loader2 className="h-7 w-7 animate-spin text-indigo-500" />
-                    <p className="text-[10px] text-slate-500">正在调遣大模型，综合评估导师偏好与内容死角...</p>
+                  <div className="py-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin text-indigo-500" />
+                      <span className="text-[11px] text-indigo-400 font-medium">
+                        {evalStreamText ? "正在生成诊断报告..." : "正在调遣大模型分析运营数据..."}
+                      </span>
+                    </div>
+                    {evalStreamText && (
+                      <div className="bg-slate-50 dark:bg-slate-900/40 border border-slate-100 dark:border-slate-800 rounded-lg p-3 max-h-40 overflow-y-auto">
+                        <p className="text-[10px] text-slate-400 font-mono whitespace-pre-wrap leading-relaxed">{evalStreamText}</p>
+                      </div>
+                    )}
+                    <button
+                      onClick={handleAbortEvaluation}
+                      className="text-[10px] text-slate-400 hover:text-rose-500 transition-colors"
+                    >
+                      取消诊断
+                    </button>
                   </div>
                 )}
 
                 {evalResult && !evalLoading && (
-                  <div className="space-y-3 mt-1">
-                    <div className="flex items-center gap-4 bg-slate-50 dark:bg-slate-900/40 border border-slate-100 dark:border-slate-800 p-4 rounded-xl">
-                      <div className="relative w-14 h-14 flex items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 shadow-lg shadow-indigo-500/25 shrink-0">
-                        <span className="text-xl font-bold font-mono text-white">{evalResult.score}</span>
-                        <span className="absolute -top-1.5 -right-1 text-[8px] bg-amber-400 text-slate-900 px-1 py-0.5 rounded-full font-bold">分</span>
+                  <div className="space-y-4 mt-2">
+                    {/* 健康评分 + 总结 */}
+                    <div className="flex items-start gap-4 bg-slate-50 dark:bg-slate-900/40 border border-slate-100 dark:border-slate-800 p-4 rounded-xl">
+                      <div className={`relative w-16 h-16 flex items-center justify-center rounded-full bg-gradient-to-br ${GRADE_COLORS[evalResult.grade] || GRADE_COLORS["待改善"]} shadow-lg shrink-0`}>
+                        <span className="text-2xl font-bold font-mono text-white">{evalResult.score}</span>
+                        <span className="absolute -top-1 -right-1 text-[8px] bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 px-1.5 py-0.5 rounded-full font-bold border border-slate-200 dark:border-slate-700">分</span>
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="text-xs font-bold text-slate-700 dark:text-slate-200">健康度诊断结论</div>
-                        <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">{evalResult.summary}</div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                            evalResult.grade === "优秀" ? "bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400" :
+                            evalResult.grade === "良好" ? "bg-indigo-100 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-400" :
+                            evalResult.grade === "待改善" ? "bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400" :
+                            "bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400"
+                          }`}>{evalResult.grade}</span>
+                          <span className="text-[10px] text-slate-400">系统健康度诊断</span>
+                        </div>
+                        <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">{evalResult.summary}</p>
                       </div>
+                      <button
+                        onClick={handleStartAiEvaluation}
+                        className="shrink-0 px-3 py-1.5 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/20 text-indigo-400 text-[10px] font-bold transition-all"
+                      >
+                        重新诊断
+                      </button>
                     </div>
-                    <div className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/20 p-4 rounded-xl markdown-body space-y-2">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {evalResult.details}
-                      </ReactMarkdown>
+
+                    {/* 正向发现 + 风险 */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {evalResult.highlights.length > 0 && (
+                        <div className="bg-emerald-50/50 dark:bg-emerald-950/10 border border-emerald-200/50 dark:border-emerald-500/15 rounded-xl p-4">
+                          <h4 className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-400 mb-3">
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            正向发现
+                          </h4>
+                          <ul className="space-y-2">
+                            {evalResult.highlights.map((h, i) => (
+                              <li key={i} className="flex items-start gap-2 text-[10px] text-emerald-600 dark:text-emerald-300/80 leading-relaxed">
+                                <span className="mt-0.5 w-1 h-1 rounded-full bg-emerald-500 shrink-0" />
+                                {h}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {evalResult.risks.length > 0 && (
+                        <div className="bg-amber-50/50 dark:bg-amber-950/10 border border-amber-200/50 dark:border-amber-500/15 rounded-xl p-4">
+                          <h4 className="flex items-center gap-1.5 text-[11px] font-bold text-amber-700 dark:text-amber-400 mb-3">
+                            <AlertTriangle className="h-3.5 w-3.5" />
+                            待关注风险
+                          </h4>
+                          <ul className="space-y-2">
+                            {evalResult.risks.map((r, i) => (
+                              <li key={i} className="flex items-start gap-2 text-[10px] text-amber-600 dark:text-amber-300/80 leading-relaxed">
+                                <span className="mt-0.5 w-1 h-1 rounded-full bg-amber-500 shrink-0" />
+                                {r}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                     </div>
+
+                    {/* 改进建议 */}
+                    {evalResult.suggestions.length > 0 && (
+                      <div className="border border-slate-100 dark:border-slate-800 rounded-xl overflow-hidden">
+                        <h4 className="flex items-center gap-1.5 px-4 py-3 bg-slate-50 dark:bg-slate-900/40 border-b border-slate-100 dark:border-slate-800 text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                          <Lightbulb className="h-3.5 w-3.5 text-amber-400" />
+                          改进建议
+                        </h4>
+                        <div className="divide-y divide-slate-50 dark:divide-slate-800/50">
+                          {evalResult.suggestions.map((s, i) => {
+                            const priorityColors: Record<string, string> = {
+                              "高": "border-l-rose-500 bg-rose-50/30 dark:bg-rose-950/10",
+                              "中": "border-l-amber-500 bg-amber-50/30 dark:bg-amber-950/10",
+                              "低": "border-l-blue-500 bg-blue-50/30 dark:bg-blue-950/10",
+                            };
+                            const priorityBadgeColors: Record<string, string> = {
+                              "高": "bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400",
+                              "中": "bg-amber-100 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400",
+                              "低": "bg-blue-100 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400",
+                            };
+                            return (
+                              <div key={i} className={`px-4 py-3 border-l-2 ${priorityColors[s.priority] || priorityColors["中"]}`}>
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${priorityBadgeColors[s.priority] || priorityBadgeColors["中"]}`}>
+                                    {s.priority}优先级
+                                  </span>
+                                  <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200">{s.title}</span>
+                                </div>
+                                <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed">{s.detail}</p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

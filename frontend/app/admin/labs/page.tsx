@@ -506,8 +506,8 @@ export default function AdminLabsPage() {
         {/* 页面标题 */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-slate-900 dark:text-white">题库管理</h1>
-            <p className="text-xs text-slate-500 mt-1">管理内置题库 — AI 智能批量出题 + 手动录入，覆盖选择/连线/排序/填空/编程五大题型</p>
+            <h1 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">题库管理</h1>
+            <p className="text-[11px] text-slate-500 mt-0.5">AI 智能批量出题 + 手动录入，覆盖选择 / 连线 / 排序 / 填空 / 编程五大题型</p>
           </div>
           <div className="flex gap-2">
             <button

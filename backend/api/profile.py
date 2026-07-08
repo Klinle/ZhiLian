@@ -25,5 +25,5 @@ async def get_profile_radar(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    """三方向（RAG/LangGraph/LLMOps）能力维度数据"""
+
     return await profile_service.get_radar(session, current_user.id)
