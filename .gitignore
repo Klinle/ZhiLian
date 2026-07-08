@@ -61,6 +61,7 @@ backend/uploads/
 *.log
 server.log
 logs/
+tunnel-logs/
 
 # ── IDE / 编辑器 ────────────────────
 .idea/

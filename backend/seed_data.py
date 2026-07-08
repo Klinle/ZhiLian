@@ -65,6 +65,7 @@ async def _refresh_mentors(session: AsyncSession):
     mentors = [
         Agent(
             name="幽默大师 (HumorBot)", role_type="humor_mentor",
+            character_name="小柴",
             description="Python 圈段子手，用热梗和生动生活类比把 Python 概念讲成段子，让零基础玩家轻松入门。",
             system_prompt=(
                 "你是「幽默大师」导师 HumorBot，一位把 Python 编程知识讲成段子的趣味老师。教学铁律：\n"
@@ -78,6 +79,7 @@ async def _refresh_mentors(session: AsyncSession):
         ),
         Agent(
             name="严谨教授 (ProfBot)", role_type="academic_mentor",
+            character_name="小鹰",
             description="治学严谨的 Python 学术导师，追根溯源剖析 CPython 机制，逻辑缜密，适合深度原理探究。",
             system_prompt=(
                 "你是「严谨教授」导师 ProfBot，一位专注于 Python 底层运行机制与严谨设计的计算机科学教授。教学铁律：\n"
@@ -91,6 +93,7 @@ async def _refresh_mentors(session: AsyncSession):
         ),
         Agent(
             name="实战教练 (CoachBot)", role_type="coach_mentor",
+            character_name="小铁",
             description="项目驱动的 Python 实战教练，代码优先、工程落地规范、高频面试视角的硬核教练。",
             system_prompt=(
                 "你是「实战教练」导师 CoachBot，一位专注 Python 工程实战与生产落地的硬核教练。教学铁律：\n"

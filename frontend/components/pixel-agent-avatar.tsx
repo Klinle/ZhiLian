@@ -186,7 +186,7 @@ export const PixelAgentAvatar: React.FC<PixelAgentAvatarProps> = ({
     case "coach_mentor": // 小铁 (Robo)
       return (
         <div className={`relative ${className} select-none`}>
-          {renderGrid(ROBO_GRID, (char, r, c) => {
+          {renderGrid(ROBO_GRID, (char, r) => {
             if (char === "R" && r === 0) return "anim-blink-fast";
             if (char === "C" && r >= 10 && r <= 11) return "anim-blink-fast";
             return "";

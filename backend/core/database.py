@@ -31,6 +31,7 @@ async def init_db():
             "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id) ON DELETE CASCADE",
             "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS agent_id UUID REFERENCES agents(id) ON DELETE SET NULL",
             "ALTER TABLE knowledge_nodes ADD COLUMN IF NOT EXISTS source VARCHAR(30) DEFAULT 'extraction'",
+            "ALTER TABLE agents ADD COLUMN IF NOT EXISTS character_name VARCHAR(50)",
         ]
         for stmt in alter_statements:
             await conn.execute(text(stmt))

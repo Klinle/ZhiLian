@@ -8,8 +8,9 @@ export interface Message {
 export interface Conversation {
   id: string;
   title: string;
-  createdAt: string;
-  updatedAt: string;
+  created_at: string;
+  updated_at: string;
+  message_count?: number;
 }
 
 export interface Settings {
@@ -24,6 +25,7 @@ export interface Lab {
   description?: string;
   starter_code?: string;
   test_cases?: Record<string, unknown>;
+  answer?: Record<string, unknown>;
   difficulty?: string;
   lab_type?: string;
   node_id?: string;
@@ -130,4 +132,54 @@ export interface ProfileStats {
   total_submissions: number;
   study_duration_hours: number;
   memory_count: number;
+}
+
+// 知识图谱关系
+export interface GraphRelation {
+  source: string;
+  target: string;
+  relation_type: string;
+  weight?: number;
+}
+
+// 能力雷达图数据
+export interface RadarData {
+  indicators: { name: string; max: number }[];
+  values: {
+    direction: string;
+    coverage: number;
+    proficiency: number;
+    lighted: number;
+    total: number;
+  }[];
+}
+
+// 知识库分类
+export interface KnowledgeBase {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+// 收藏的题目
+export interface CollectionExercise {
+  id: string;
+  node_id?: string;
+  title: string;
+  exercise_type: string;
+  content: Record<string, unknown>;
+  answer: Record<string, unknown>;
+  explanation?: string;
+  created_at: string;
+}
+
+// 对话详情（含消息列表）
+export interface ConversationDetail extends Conversation {
+  model?: string;
+  messages?: Array<{
+    id: string;
+    role: string;
+    content: string;
+    created_at: string;
+  }>;
 }

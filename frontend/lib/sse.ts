@@ -8,7 +8,7 @@
 /** SSE 事件接口 */
 export interface SSEEvent {
   event: string;
-  data: any;
+  data: Record<string, unknown>;
 }
 
 /** 工作流状态事件 */
@@ -18,7 +18,7 @@ export interface WorkflowStatusEvent {
   label: string;
   status: "running" | "done";
   message?: string;
-  data?: any;
+  data?: Record<string, unknown>;
 }
 
 /** 工作流内容事件 */

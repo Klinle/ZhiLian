@@ -27,17 +27,9 @@ import {
   Filter,
   Tag,
   Star,
-  MessageSquare,
-  BookOpen,
-  Activity,
-  Network,
-  Award,
-  Grid3X3,
-  LogOut,
 } from "lucide-react";
 import UserLayout from "@/components/user-layout";
 import { API_BASE_URL, getAuthHeaders } from "@/lib/api";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 interface Memory {
@@ -80,7 +72,6 @@ const categories = [
 
 export default function MemoriesPage() {
   const router = useRouter();
-  const [userRole, setUserRole] = useState<string>("");
 
   // 鉴权检查
   useEffect(() => {
@@ -88,8 +79,6 @@ export default function MemoriesPage() {
       const token = localStorage.getItem("cognilink_token");
       if (!token) {
         router.push("/login");
-      } else {
-        setUserRole(localStorage.getItem("cognilink_user_role") || "student");
       }
     }
   }, [router]);

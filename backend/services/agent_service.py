@@ -3,6 +3,13 @@ Agent 自动路由服务 — 按学习场景路由风格导师（HumorBot / Prof
 - 根据用户消息判断学习场景（概念入门 / 深度原理 / 代码实操），路由对应风格导师
 - 注入用户认知状态（薄弱点、已掌握），让导师"认识"用户、个性化教学
 - 若用户手动指定 agent_id，则跳过自动路由
+
+注意：本服务仅服务于 /api/chat 和 /api/chat/rag 端点（非多 Agent 模式）。
+多 Agent 模式（/api/chat/graph）下，教学风格路由由 GraphService 统一处理：
+- GraphService.orchestrator_node 单次 LLM 调用同时分类知识领域 + 教学风格
+- GraphService.reviewer_node 组合 风格prompt + 领域prompt + 认知状态
+- GraphService._fetch_style_prompt 从 Agent 表查询风格导师 system_prompt
+- 认知状态注入逻辑在 GraphService._inject_cognitive_state 中独立实现（避免循环依赖）
 """
 
 from typing import Optional, Tuple

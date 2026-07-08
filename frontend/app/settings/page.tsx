@@ -7,17 +7,14 @@ import {
   PROVIDERS,
   getModelsByProvider,
 } from '@/stores/settings';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Key, Bot, Check, ChevronDown, Eye, EyeOff, Globe, MessageSquare, BookOpen, Brain, Activity, Network, Award, Grid3X3, Shield, LogOut, Settings } from 'lucide-react';
+import { Key, Bot, Check, ChevronDown, Eye, EyeOff, Globe } from 'lucide-react';
 import UserLayout from "@/components/user-layout";
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
 export default function SettingsPage() {
   const router = useRouter();
-  const [userRole, setUserRole] = useState<string>('');
 
   // 鉴权检查
   useEffect(() => {
@@ -25,8 +22,6 @@ export default function SettingsPage() {
       const token = localStorage.getItem('cognilink_token');
       if (!token) {
         router.push('/login');
-      } else {
-        setUserRole(localStorage.getItem('cognilink_user_role') || 'student');
       }
     }
   }, [router]);
@@ -46,8 +41,6 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<'models' | 'providers'>('models');
   const [showKey, setShowKey] = useState<Record<string, boolean>>({});
   const [expandedProvider, setExpandedProvider] = useState<string | null>(selectedProvider);
-
-  const currentProvider = PROVIDERS.find((p) => p.id === selectedProvider);
 
   const handleModelSelect = (modelId: string) => {
     setModel(modelId);

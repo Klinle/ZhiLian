@@ -25,11 +25,11 @@ import { collectionApi } from "@/lib/api";
 interface LabData {
   id: string;
   title: string;
-  description: string;
+  description?: string;
   starter_code?: string;
-  test_cases: any;
-  difficulty: string;
-  lab_type: string;
+  test_cases?: any;
+  difficulty?: string;
+  lab_type?: string;
   detailed_explanation?: string;
   node_id?: string;
 }
@@ -52,6 +52,7 @@ interface ExerciseRendererProps {
   activeLabId?: string; // 初始定位的题目 ID
   onSubmit: (result: { score: number; passed: boolean; answers: any }) => Promise<void>;
   isSubmitting?: boolean;
+  isCollected?: boolean; // 外部传入的收藏状态（组件内部仍以 currentCollected 为准）
   onToggleCollect?: (targetLab?: any) => Promise<void>;
 }
 
@@ -63,7 +64,8 @@ export default function ExerciseRenderer({
   onToggleCollect,
 }: ExerciseRendererProps) {
   const { openAssistant, setTriggerMessage } = useChatAssistantStore();
-  const { apiKeys, openaiApiKey, model, baseUrls, selectedAgentId } = useSettingsStore();
+  const { apiKeys, openaiApiKey, model, baseUrls } = useSettingsStore();
+  const selectedAgentId: string = "auto"; // 默认自动路由
 
   // 1. 扁平化题目池
   const [cards, setCards] = useState<LabData[]>([]);

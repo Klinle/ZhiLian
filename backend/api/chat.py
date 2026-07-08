@@ -19,6 +19,13 @@ import asyncio
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
+# 流式响应头：禁止代理缓冲，确保前端实时收到分块
+STREAM_HEADERS = {
+    "Cache-Control": "no-cache",
+    "X-Accel-Buffering": "no",
+    "Connection": "keep-alive",
+}
+
 
 async def _extract_memories_background(
     conversation_id: str,
@@ -163,7 +170,7 @@ async def chat(
             traceback.print_exc()
             yield f"[ERROR]{str(e)}"
 
-    return StreamingResponse(generate(), media_type="text/event-stream")
+    return StreamingResponse(generate(), media_type="text/event-stream", headers=STREAM_HEADERS)
 
 
 @router.post("/chat/rag")
@@ -276,7 +283,7 @@ async def chat_with_rag(
             traceback.print_exc()
             yield f"[ERROR]{str(e)}"
 
-    return StreamingResponse(generate(), media_type="text/event-stream")
+    return StreamingResponse(generate(), media_type="text/event-stream", headers=STREAM_HEADERS)
 
 
 @router.post("/chat/graph")
@@ -323,6 +330,7 @@ async def chat_with_graph(
         "session": session,
         "user_id": user_id,
         "messages": optimized_context,
+        "agent_id": request.agentId,  # 传递用户手动选择的导师
     }
 
     async def generate():
@@ -372,7 +380,7 @@ async def chat_with_graph(
             )
             yield f"event: error\ndata: {error_data}\n\n"
 
-    return StreamingResponse(generate(), media_type="text/event-stream")
+    return StreamingResponse(generate(), media_type="text/event-stream", headers=STREAM_HEADERS)
 
 
 @router.get("/tools")

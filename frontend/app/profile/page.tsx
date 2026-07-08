@@ -1,15 +1,9 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import {
-  MessageSquare,
-  BookOpen,
-  Brain,
-  Grid3X3,
-  Shield,
   Activity,
   Network,
   Award,
@@ -24,31 +18,10 @@ import {
   Lock,
 } from "lucide-react";
 import { profileApi, knowledgeApi } from "@/lib/api";
-import { KnowledgeNode } from "@/types";
+import { KnowledgeNode, ProfileStats, RadarData } from "@/types";
 import UserLayout from "@/components/user-layout";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
-
-interface ProfileStats {
-  lighted_nodes: number;
-  total_nodes: number;
-  pass_rate: number;
-  passed_labs: number;
-  total_submissions: number;
-  study_duration_hours: number;
-  memory_count: number;
-}
-
-interface RadarData {
-  indicators: { name: string; max: number }[];
-  values: {
-    direction: string;
-    coverage: number;
-    proficiency: number;
-    lighted: number;
-    total: number;
-  }[];
-}
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -58,7 +31,6 @@ export default function ProfilePage() {
   const [nodes, setNodes] = useState<KnowledgeNode[]>([]);
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [userRole, setUserRole] = useState<string>("");
 
   const categoryMapping: Record<string, { label: string, color: string }> = {
     "programming": { label: "终端游戏与工具", color: "bg-blue-500" },
@@ -74,8 +46,6 @@ export default function ProfilePage() {
       const token = localStorage.getItem("cognilink_token");
       if (!token) {
         router.push("/login");
-      } else {
-        setUserRole(localStorage.getItem("cognilink_user_role") || "student");
       }
     }
   }, [router]);

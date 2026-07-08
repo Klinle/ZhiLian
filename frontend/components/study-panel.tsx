@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
-import { Sparkles, ArrowRight, Loader2, RefreshCw, CheckCircle, XCircle, Award, Brain, HelpCircle } from "lucide-react";
+import { Sparkles, ArrowRight, Loader2, RefreshCw, CheckCircle, XCircle, Award, HelpCircle } from "lucide-react";
 import { labApi } from "@/lib/api";
 import { useSettingsStore, SUPPORTED_MODELS } from "@/stores/settings";
 import type { RecommendedNode } from "@/types";
@@ -18,6 +18,31 @@ interface RadarData {
     lighted: number;
     total: number;
   }[];
+}
+
+// Quiz 题目项
+interface QuizQuestion {
+  id?: string;
+  text?: string;
+  question?: string;
+  options?: string[];
+  answer?: number;
+  explanation?: string;
+}
+
+// Quiz 数据
+interface QuizData {
+  id?: string;
+  node_id?: string;
+  node_name?: string;
+  test_cases?: { questions?: QuizQuestion[] };
+  questions?: QuizQuestion[];
+}
+
+// Quiz 评测结果
+interface QuizEvalResult {
+  score: number;
+  feedback?: string;
 }
 
 interface StudyPanelProps {
@@ -47,10 +72,10 @@ export default function StudyPanel({
   const [mounted, setMounted] = useState(false);
   
   // Quiz 状态
-  const [quiz, setQuiz] = useState<any>(null);
+  const [quiz, setQuiz] = useState<QuizData | null>(null);
   const [isLoadingQuiz, setIsLoadingQuiz] = useState(false);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
-  const [evalResult, setEvalResult] = useState<any>(null);
+  const [evalResult, setEvalResult] = useState<QuizEvalResult | null>(null);
   const [isEvaluating, setIsEvaluating] = useState(false);
 
   const { model, baseUrls, getEffectiveApiKey } = useSettingsStore();
@@ -95,10 +120,10 @@ export default function StudyPanel({
     try {
       const activeModel = SUPPORTED_MODELS.find((m) => m.id === model);
       // 提取问题项以进行即时评测
-      const questionItem = quiz.test_cases?.questions?.[0] || quiz.questions?.[0] || quiz;
+      const questionItem: QuizQuestion = (quiz.test_cases?.questions?.[0] || quiz.questions?.[0] || quiz) as QuizQuestion;
       
       const res = await labApi.evaluateDynamic({
-        exercise: quiz,
+        exercise: quiz as Record<string, unknown>,
         answers: { [questionItem.id || "0"]: ansIndex },
         node_id: quiz.node_id,
         api_key: apiKey,
@@ -182,7 +207,7 @@ export default function StudyPanel({
     : null;
 
   // 提取 Quiz 题目详情
-  const question = quiz?.test_cases?.questions?.[0] || quiz?.questions?.[0] || quiz;
+  const question: QuizQuestion = (quiz?.test_cases?.questions?.[0] || quiz?.questions?.[0] || quiz) as QuizQuestion;
 
   return (
     <div className="flex flex-col gap-5 min-w-0">
@@ -280,7 +305,7 @@ export default function StudyPanel({
               <div className="space-y-1.5">
                 {(question?.options || []).map((optionText: string, oIdx: number) => {
                   const isSelected = selectedAnswer === oIdx;
-                  const isCorrect = evalResult?.score >= 60; // 评测通过分
+                  const isCorrect = (evalResult?.score ?? 0) >= 60; // 评测通过分
                   
                   let optionStyle = "border-gray-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-gray-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-850 cursor-pointer";
                   if (isSelected) {
@@ -317,7 +342,7 @@ export default function StudyPanel({
             {evalResult && (
               <div className="mt-3.5 pt-3.5 border-t border-gray-100 dark:border-zinc-800 animate-in fade-in duration-200">
                 <div className="flex items-center gap-1.5 mb-1.5">
-                  {evalResult.score >= 60 ? (
+                  {(evalResult?.score ?? 0) >= 60 ? (
                     <div className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-[11px] font-bold">
                       <CheckCircle className="h-4 w-4" />
                       回答正确！已点亮节点

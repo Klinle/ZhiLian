@@ -17,7 +17,7 @@ export interface WorkflowStep {
   label: string;
   status: "pending" | "running" | "done";
   message?: string;
-  data?: any;
+  data?: Record<string, unknown>;
 }
 
 /** 节点图标映射 — 对应简化后的工作流（orchestrator → rag_bot → reviewer）*/

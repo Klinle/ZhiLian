@@ -1,18 +1,37 @@
 """
 LangGraph 多 Agent 协同工作流服务
 - 基于 StateGraph 编排 Orchestrator → RagBot → Reviewer 工作流
-- Orchestrator 分析用户问题属于六大知识领域中的哪个
+- Orchestrator 单次 LLM 调用同时分类知识领域（domain）和教学风格（style）
 - RagBot 执行混合检索（BM25 + 向量 + RRF）
-- Reviewer 基于领域专属教学风格 + RAG 上下文生成最终回答
+- Reviewer 组合三段 prompt 生成最终回答：
+  1. 风格 prompt（HOW）— 从 Agent 表查询风格导师 system_prompt，手动选择优先于自动分类
+  2. 领域 prompt（WHAT）— 从 DOMAINS 字典获取领域专属导师人设
+  3. 认知状态（针对谁）— 查询用户知识状态，注入薄弱点和已掌握情况
 """
 
 import json
-from typing import TypedDict, Any, Optional, List
+from typing import TypedDict, Any, Optional, List, Tuple
 
 from langgraph.graph import StateGraph, END
 
 from core.config import settings
 
+
+# 教学风格 → 中文标签映射
+STYLE_ZH_MAP = {
+    "humor": "幽默风格",
+    "academic": "学术风格",
+    "coach": "实战风格",
+    "general": "通用风格",
+}
+
+# 教学风格 → Agent role_type 映射（与 agent_service.STYLE_ROLE_MAP 保持一致）
+STYLE_ROLE_MAP = {
+    "humor": "humor_mentor",
+    "academic": "academic_mentor",
+    "coach": "coach_mentor",
+    "general": None,
+}
 
 # 六大知识领域定义 — 与 seed_data.py 的 category 对齐
 DOMAINS = {
@@ -55,6 +74,8 @@ class AgentState(TypedDict, total=False):
     user_id: str                      # 用户ID
     sub_tasks: list                   # Orchestrator 分解的子任务列表
     classified_domain: str            # Orchestrator 分类出的知识领域
+    classified_style: str             # Orchestrator 分类出的教学风格
+    agent_id: str                     # 用户手动选择的导师 ID（humor/academic/coach 或 UUID）
     agent_results: dict               # 各 Agent 的中间结果 {"rag": ...}
     final_answer: str                 # 最终聚合结果
     api_key: str                      # LLM API Key
@@ -72,35 +93,42 @@ class GraphService:
 
     async def orchestrator_node(self, state: AgentState) -> dict:
         """
-        Orchestrator 节点：意图分析 + 领域分类
+        Orchestrator 节点：意图分析 + 领域分类 + 风格分类
 
         分析用户消息，判断属于六大知识领域中的哪个，
-        或归类为 general（通用对话/闲聊）。
+        以及最适合的教学风格，或归类为 general。
 
         Returns:
-            更新后的状态字段：sub_tasks + classified_domain
+            更新后的状态字段：sub_tasks + classified_domain + classified_style
         """
         user_message = state.get("user_message", "")
         api_key = state.get("api_key", "")
         model = state.get("model", "")
         base_url = state.get("base_url")
 
-        domain = await self._classify_domain(
+        domain, style = await self._classify_domain_and_style(
             user_message, api_key, model, base_url
         )
 
         return {
-            "sub_tasks": [{"domain": domain, "task": user_message}],
+            "sub_tasks": [{"domain": domain, "style": style, "task": user_message}],
             "classified_domain": domain,
+            "classified_style": style,
         }
 
-    async def _classify_domain(
+    async def _classify_domain_and_style(
         self,
         message: str,
         api_key: str,
         model: str,
         base_url: Optional[str] = None,
-    ) -> str:
+    ) -> Tuple[str, str]:
+        """
+        单次 LLM 调用同时分类知识领域和教学风格。
+
+        Returns:
+            (domain, style) — domain 为六大领域或 general，style 为 humor/academic/coach/general
+        """
 
         from openai import AsyncOpenAI
 
@@ -109,12 +137,13 @@ class GraphService:
         effective_model = model or settings.DEEPSEEK_MODEL
 
         if not effective_api_key:
-            return "general"
+            return "general", "general"
 
         client = AsyncOpenAI(api_key=effective_api_key, base_url=effective_base_url)
 
-        system_prompt = """你是一个问题分类器。请分析用户的问题，判断它属于以下哪个 Python 游戏或小工具开发领域：
+        system_prompt = """你是一个双重分类器。请分析用户的问题，同时判断：
 
+1. 知识领域（domain）— 属于以下哪个领域：
 - programming: 终端游戏与工具（变量类型、字符串正则、控制流分支循环、容器列表字典、函数参数解包、异常捕获等）
 - dsa: 益智游戏数据（列表推导式、装饰器切面、生成器迭代器、垃圾回收内存管理、反射元编程等）
 - organization: 街机游戏设计（类设计、面向对象继承多态MRO、魔术方法重载、描述符属性拦截、__slots__优化等）
@@ -123,8 +152,14 @@ class GraphService:
 - database: 数据与工程（SQLite嵌入数据库、SQLAlchemy ORM框架、pytest单元测试、NumPy/Pandas矩阵与数据处理等）
 - general: 通用对话、闲聊、或非以上六大领域的问题
 
-请只返回一个 JSON 对象，包含 domain 字段：
-{"domain": "programming"}
+2. 教学风格（style）— 用户当前最适合哪种教学风格：
+- humor: 基础概念入门、通俗理解、初次接触（例如："什么是装饰器" "讲讲Python的列表"）
+- academic: 深度原理、底层机制、探究设计哲学（例如："GIL锁是怎么工作的" "CPython如何进行垃圾回收"）
+- coach: 代码实现、实战工程应用、面试准备（例如："写一个FastAPI接口" "给我个装饰器限流代码"）
+- general: 闲聊、问候、或不易判断
+
+请只返回一个 JSON 对象：
+{"domain": "programming", "style": "humor"}
 
 不要包含其他文本。"""
 
@@ -145,13 +180,16 @@ class GraphService:
 
             result = json.loads(content)
             domain = result.get("domain", "general")
-            # 验证领域合法性
-            if domain in DOMAINS or domain == "general":
-                return domain
-            return "general"
+            style = result.get("style", "general")
+            # 验证合法性
+            if domain not in DOMAINS and domain != "general":
+                domain = "general"
+            if style not in STYLE_ROLE_MAP:
+                style = "general"
+            return domain, style
         except Exception as e:
-            print(f"[Orchestrator] 领域分类失败: {e}")
-            return "general"
+            print(f"[Orchestrator] 领域+风格分类失败: {e}")
+            return "general", "general"
 
     def route_to_agents(self, state: AgentState) -> str:
         """
@@ -242,10 +280,12 @@ class GraphService:
 
     async def reviewer_node(self, state: AgentState) -> dict:
         """
-        Reviewer 节点：基于领域教学风格 + RAG 上下文生成最终回答
+        Reviewer 节点：组合教学风格 + 领域知识 + RAG 上下文 + 认知状态，生成最终回答
 
-        - 六大领域：使用领域专属导师人设 + 知识库参考材料
-        - general：使用通用 AI 助手风格，不注入 RAG 上下文
+        三段组合：
+        - 风格 prompt（HOW）— 从 Agent 表查询，手动选择优先于自动分类
+        - 领域 prompt（WHAT）— 从 DOMAINS 字典获取
+        - 认知状态（针对谁）— 从用户知识状态表查询薄弱点和已掌握点
         """
         user_message = state.get("user_message", "")
         api_key = state.get("api_key", "")
@@ -253,32 +293,53 @@ class GraphService:
         base_url = state.get("base_url")
         agent_results = state.get("agent_results", {})
         domain = state.get("classified_domain", "general")
+        style = state.get("classified_style", "general")
+        agent_id = state.get("agent_id")
+        user_id = state.get("user_id", "")
+        session = state.get("session")
 
-        # 获取领域教学风格
-        domain_info = DOMAINS.get(domain)
+        # 获取 RAG 上下文
         rag_context = ""
         if "rag" in agent_results:
             rag_context = agent_results["rag"].get("context", "")
 
-        # general 领域：直接通用回答
-        if domain == "general" or not domain_info:
-            general_prompt = "你是一个友好的 AI 助手，请回答用户的问题。"
-            general_answer = await self._call_llm(
-                general_prompt, user_message, api_key, model, base_url
-            )
-            return {"final_answer": general_answer or "抱歉，无法生成回答。"}
+        # 1. 确定教学风格 prompt（手动选择优先于自动分类）
+        style_prompt = ""
+        if agent_id and agent_id != "auto":
+            style_prompt = await self._fetch_style_prompt(session, agent_id)
+        elif style and style != "general":
+            style_prompt = await self._fetch_style_prompt(session, style)
 
-        # 六大领域：领域导师风格 + RAG 上下文
-        system_prompt = domain_info["mentor"]
+        # 2. 获取领域 prompt（WHAT）
+        domain_info = DOMAINS.get(domain)
+        domain_prompt = domain_info["mentor"] if domain_info else ""
 
+        # 3. 组合 system_prompt：风格（HOW）+ 领域（WHAT）+ RAG 上下文
+        parts = []
+        if style_prompt:
+            parts.append(style_prompt)
+        if domain_prompt:
+            parts.append(f"## 当前教学领域\n{domain_prompt}")
+        else:
+            # general 领域且无风格 prompt时的保底
+            if not style_prompt:
+                parts.append("你是一个友好的 AI 助手，请回答用户的问题。")
         if rag_context:
-            system_prompt += (
-                "\n\n## 知识库参考资料\n"
-                f"{rag_context}\n\n"
+            parts.append(
+                f"## 知识库参考资料\n{rag_context}\n\n"
                 "请基于以上参考资料回答用户问题，并在回答中适当引用来源。"
                 "如果参考资料中没有直接相关的内容，请基于你的专业知识回答。"
             )
 
+        system_prompt = "\n\n".join(parts)
+
+        # 4. 注入用户认知状态（针对谁）
+        if user_id and session:
+            system_prompt = await self._inject_cognitive_state(
+                session, user_id, system_prompt
+            )
+
+        # 5. 调用 LLM 生成最终回答
         final_answer = await self._call_llm(
             system_prompt, user_message, api_key, model, base_url
         )
@@ -286,6 +347,105 @@ class GraphService:
         return {
             "final_answer": final_answer or "抱歉，无法生成回答。",
         }
+
+    async def _fetch_style_prompt(
+        self, session: Any, agent_id: str
+    ) -> str:
+        """
+        从 Agent 表查询风格导师的 system_prompt
+
+        Args:
+            session: 数据库会话
+            agent_id: 可能是风格关键字（humor/academic/coach）或 UUID
+
+        Returns:
+            风格导师的 system_prompt，查询失败时返回空字符串
+        """
+        if not session:
+            return ""
+
+        from models.database import Agent
+        from sqlalchemy import select
+
+        try:
+            # 风格关键字 → role_type 映射
+            if agent_id in STYLE_ROLE_MAP and STYLE_ROLE_MAP[agent_id]:
+                role_type = STYLE_ROLE_MAP[agent_id]
+                stmt = select(Agent).where(
+                    Agent.role_type == role_type,
+                    Agent.is_active == 1,
+                )
+            else:
+                # 尝试作为 UUID 查询
+                from uuid import UUID
+                stmt = select(Agent).where(
+                    Agent.id == UUID(agent_id),
+                    Agent.is_active == 1,
+                )
+
+            result = await session.execute(stmt)
+            agent = result.scalars().first()
+            if agent:
+                return agent.system_prompt or ""
+        except Exception as e:
+            print(f"[Reviewer] 查询风格导师失败: {e}")
+
+        return ""
+
+    async def _inject_cognitive_state(
+        self, session: Any, user_id: str, base_prompt: str
+    ) -> str:
+        """
+        查询用户知识状态，将薄弱点与已掌握情况注入 system_prompt，实现个性化教学。
+
+        逻辑与 agent_service.AgentService._inject_cognitive_state 保持一致，
+        避免循环依赖而独立实现。
+        """
+        from uuid import UUID
+        from sqlalchemy import select
+        from models.database import KnowledgeNode, UserKnowledgeState
+
+        try:
+            uid = UUID(user_id)
+        except (ValueError, AttributeError):
+            return base_prompt
+
+        # 关联查询用户的知识状态与节点
+        stmt = (
+            select(UserKnowledgeState, KnowledgeNode)
+            .join(KnowledgeNode, UserKnowledgeState.node_id == KnowledgeNode.id)
+            .where(UserKnowledgeState.user_id == uid)
+        )
+        result = await session.execute(stmt)
+        rows = result.all()
+
+        if not rows:
+            return base_prompt  # 新用户无状态，用原始 prompt
+
+        lighted_names: list[str] = []
+        weak_names: list[str] = []
+        for state_row, node in rows:
+            if state_row.is_lighted:
+                lighted_names.append(node.name)
+            elif state_row.proficiency < 0.5:
+                weak_names.append(node.name)
+
+        cognitive = "\n\n## 当前学员知识掌握情况（个性化教学依据）\n"
+        cognitive += f"- 已点亮（已掌握）知识点: {len(lighted_names)} 个"
+        if lighted_names:
+            cognitive += f"（{', '.join(lighted_names[:8])}）"
+        cognitive += "\n"
+        cognitive += f"- 薄弱知识点: {len(weak_names)} 个"
+        if weak_names:
+            cognitive += f"（{', '.join(weak_names[:8])}）"
+        cognitive += (
+            "\n\n## 个性化教学策略\n"
+            "- 针对薄弱知识点：多结合实际案例，深入剖析核心设计与易错细节，放慢讲解节奏并鼓励提问\n"
+            "- 针对已掌握的概念：减少赘述，引导探讨底层性能优化或更高级的进阶用法\n"
+            "- 在讲解新模块时，适时与已掌握或薄弱的知识点进行横向关联，帮助构建完整的技能网络"
+        )
+
+        return base_prompt + cognitive
 
     def _build_workflow(self):
         """
@@ -374,12 +534,14 @@ class GraphService:
 
         final_answer = ""
         classified_domain = "general"
+        classified_style = "general"
 
         # 2. 流式执行，每个节点完成后获取状态更新
         async for chunk in self._app.astream(state, stream_mode="updates"):
             for node_name, state_update in chunk.items():
                 if node_name == "orchestrator":
                     classified_domain = state_update.get("classified_domain", "general")
+                    classified_style = state_update.get("classified_style", "general")
                     sub_tasks = state_update.get("sub_tasks", [])
                     yield {
                         "type": "status",
@@ -389,6 +551,8 @@ class GraphService:
                         "data": {
                             "domain": classified_domain,
                             "domain_zh": DOMAINS.get(classified_domain, {}).get("zh", "通用"),
+                            "style": classified_style,
+                            "style_zh": STYLE_ZH_MAP.get(classified_style, "通用"),
                             "sub_tasks": sub_tasks,
                         },
                     }

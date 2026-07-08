@@ -15,7 +15,6 @@ import {
   Sparkles,
   ChevronDown,
   Menu,
-  X,
   User,
 } from "lucide-react";
 import { useChatAssistantStore } from "@/stores/chat-assistant";
@@ -39,6 +38,7 @@ export default function UserLayout({ children, activePath }: UserLayoutProps) {
   const openAssistant = useChatAssistantStore((state) => state.openAssistant);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
 
     if (typeof window !== "undefined") {

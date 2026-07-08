@@ -2,12 +2,11 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useChatAssistantStore } from "@/stores/chat-assistant";
-import { useSettingsStore, SUPPORTED_MODELS } from "@/stores/settings";
+import { useSettingsStore } from "@/stores/settings";
 import { useChat } from "@/hooks/use-chat";
 import {
   Sparkles,
   X,
-  Send,
   Bot,
   Brain,
   BookOpen,
@@ -18,7 +17,6 @@ import {
   Plus,
   Loader2,
   Paperclip,
-  Activity,
   Network,
   Maximize2,
   Minimize2,
@@ -48,8 +46,6 @@ export default function FloatingChatAssistant() {
     setUseMemory,
     setUseTools,
     setUseMultiAgent,
-    model,
-    setModel,
   } = useSettingsStore();
 
   const {
@@ -60,7 +56,6 @@ export default function FloatingChatAssistant() {
     workflowSteps,
     conversations,
     currentConversationId,
-    setCurrentConversationId,
     selectedAgentId,
     setSelectedAgentId,
     fetchConversations,
@@ -367,11 +362,11 @@ export default function FloatingChatAssistant() {
     ),
     code: ({ inline, children }: { inline?: boolean; children?: React.ReactNode }) =>
       inline ? (
-        <code className="bg-slate-100 dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 px-1 py-0.5 rounded text-[0.8em] font-mono">
+        <code className="bg-slate-100 dark:bg-zinc-700/60 text-indigo-600 dark:text-indigo-400 px-1 py-0.5 rounded text-[0.8em] font-mono">
           {children}
         </code>
       ) : (
-        <code className="block bg-slate-900 dark:bg-zinc-950 text-green-400 p-3 rounded-xl text-xs font-mono overflow-x-auto my-2 leading-relaxed">
+        <code className="block bg-slate-50 dark:bg-zinc-900/80 border border-slate-200 dark:border-zinc-700/50 text-slate-700 dark:text-zinc-300 p-3 rounded-xl text-xs font-mono overflow-x-auto my-2 leading-relaxed">
           {children}
         </code>
       ),
@@ -698,8 +693,10 @@ export default function FloatingChatAssistant() {
             </div>
           </div>
         ) : (
-          messages.map((msg) => {
+          messages.map((msg, index) => {
             const isUser = msg.role === "user";
+            const isLastAssistant = !isUser && index === messages.length - 1;
+            const isStreaming = isLastAssistant && isLoading;
             return (
               <div
                 key={msg.id}
@@ -719,8 +716,20 @@ export default function FloatingChatAssistant() {
                 >
                   {isUser ? (
                     <div className="text-sm whitespace-pre-wrap leading-relaxed">{msg.content}</div>
+                  ) : msg.content ? (
+                    <div className="relative">
+                      {renderMessageContent(msg.content)}
+                      {isStreaming && (
+                        <span className="inline-block w-1.5 h-4 bg-indigo-500 dark:bg-indigo-400 animate-pulse ml-0.5 align-middle rounded-sm" />
+                      )}
+                    </div>
                   ) : (
-                    renderMessageContent(msg.content)
+                    /* 等待首个 token 时的思考动画 */
+                    <div className="flex items-center gap-1 py-1">
+                      <span className="w-1.5 h-1.5 bg-gray-400 dark:bg-zinc-500 rounded-full animate-bounce [animation-delay:0ms]" />
+                      <span className="w-1.5 h-1.5 bg-gray-400 dark:bg-zinc-500 rounded-full animate-bounce [animation-delay:150ms]" />
+                      <span className="w-1.5 h-1.5 bg-gray-400 dark:bg-zinc-500 rounded-full animate-bounce [animation-delay:300ms]" />
+                    </div>
                   )}
                 </div>
               </div>

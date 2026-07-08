@@ -10,9 +10,6 @@ export interface ModelConfig {
 }
 
 export const SUPPORTED_MODELS: ModelConfig[] = [
-
- 
-
   {
     id: "gemini-3.1-pro-preview",
     name: "Gemini 3.1 Pro",
@@ -73,9 +70,6 @@ export const SUPPORTED_MODELS: ModelConfig[] = [
     description: "高速低成本模型",
     contextWindow: 200000,
   },
-
- 
-  
 ];
 
 export const getModelsByProvider = (provider: string) =>

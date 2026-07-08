@@ -27,7 +27,7 @@ interface AdminLayoutProps {
   activePath?: string;
 }
 
-export default function AdminLayout({ children, activePath }: AdminLayoutProps) {
+export default function AdminLayout({ children }: AdminLayoutProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
@@ -49,6 +49,7 @@ export default function AdminLayout({ children, activePath }: AdminLayoutProps) 
         return;
       }
       if (storedNickname) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setNickname(storedNickname);
       }
 

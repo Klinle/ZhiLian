@@ -27,7 +27,8 @@ class Agent(Base):
     __tablename__ = "agents"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    name = Column(String(100), nullable=False)
+    name = Column(String(100), nullable=False)  # 角色全名，如 "幽默大师 (HumorBot)"
+    character_name = Column(String(50), nullable=True)  # 像素角色名，如 "小柴" / "小鹰" / "小铁"
     role_type = Column(String(50), default="humor_mentor")  # humor_mentor, academic_mentor, coach_mentor
     system_prompt = Column(Text, nullable=False)
     description = Column(String(255), nullable=True)

@@ -4,7 +4,7 @@ graph_service 测试 — 六大知识领域意图分析 + RAG 检索工作流
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 
-from services.graph_service import AgentState, GraphService, graph_service, DOMAINS
+from services.graph_service import AgentState, GraphService, graph_service, DOMAINS, STYLE_ROLE_MAP, STYLE_ZH_MAP
 
 
 class TestGraphServiceBasic:
@@ -21,6 +21,7 @@ class TestGraphServiceBasic:
 
         expected_fields = [
             "messages", "user_id", "sub_tasks", "classified_domain",
+            "classified_style", "agent_id",
             "agent_results", "final_answer",
             "api_key", "model", "base_url",
             "session", "user_message",
@@ -34,6 +35,15 @@ class TestGraphServiceBasic:
         for key, val in DOMAINS.items():
             assert "zh" in val
             assert "mentor" in val
+
+    def test_style_maps_defined(self):
+        """测试：教学风格映射已定义"""
+        assert len(STYLE_ROLE_MAP) == 4
+        assert len(STYLE_ZH_MAP) == 4
+        assert STYLE_ROLE_MAP["humor"] == "humor_mentor"
+        assert STYLE_ROLE_MAP["academic"] == "academic_mentor"
+        assert STYLE_ROLE_MAP["coach"] == "coach_mentor"
+        assert STYLE_ROLE_MAP["general"] is None
 
     def test_graph_service_instance(self):
         """测试：GraphService 可实例化"""
@@ -58,7 +68,7 @@ class TestOrchestratorNode:
     async def test_classify_dsa(self, service):
         """测试：数据结构问题分类为 dsa"""
         mock_response = MagicMock()
-        mock_response.choices[0].message.content = '{"domain": "dsa"}'
+        mock_response.choices[0].message.content = '{"domain": "dsa", "style": "academic"}'
 
         mock_client = MagicMock()
         mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
@@ -73,8 +83,10 @@ class TestOrchestratorNode:
             result = await service.orchestrator_node(state)
 
         assert result["classified_domain"] == "dsa"
+        assert result["classified_style"] == "academic"
         assert len(result["sub_tasks"]) == 1
         assert result["sub_tasks"][0]["domain"] == "dsa"
+        assert result["sub_tasks"][0]["style"] == "academic"
 
     @pytest.mark.asyncio
     async def test_classify_os(self, service):
@@ -128,6 +140,7 @@ class TestOrchestratorNode:
         result = await service.orchestrator_node(state)
 
         assert result["classified_domain"] == "general"
+        assert result["classified_style"] == "general"
 
     @pytest.mark.asyncio
     async def test_llm_error_fallback(self, service):
@@ -147,6 +160,7 @@ class TestOrchestratorNode:
             result = await service.orchestrator_node(state)
 
         assert result["classified_domain"] == "general"
+        assert result["classified_style"] == "general"
 
     @pytest.mark.asyncio
     async def test_invalid_domain_fallback(self, service):
@@ -167,6 +181,7 @@ class TestOrchestratorNode:
             result = await service.orchestrator_node(state)
 
         assert result["classified_domain"] == "general"
+        assert result["classified_style"] == "general"
 
 
 class TestRouteToAgents:

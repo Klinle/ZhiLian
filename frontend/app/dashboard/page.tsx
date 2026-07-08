@@ -3,14 +3,14 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Loader2, RefreshCw, X, HelpCircle, GraduationCap } from "lucide-react";
+import { Loader2, RefreshCw, X, GraduationCap } from "lucide-react";
 import UserLayout from "@/components/user-layout";
 import XpProgressBar from "@/components/xp-progress-bar";
 import SkillTree from "@/components/skill-tree";
 import StudyPanel from "@/components/study-panel";
 import { knowledgeApi, profileApi } from "@/lib/api";
 import { useChatAssistantStore } from "@/stores/chat-assistant";
-import type { KnowledgeNode, RecommendedNode, ProfileStats } from "@/types";
+import type { KnowledgeNode, RecommendedNode, ProfileStats, GraphRelation, RadarData, KnowledgeBase } from "@/types";
 import { CATEGORY_COLORS } from "@/components/skill-node";
 
 export default function DashboardPage() {
@@ -21,13 +21,13 @@ export default function DashboardPage() {
 
   // 数据 States
   const [nodes, setNodes] = useState<KnowledgeNode[]>([]);
-  const [relations, setRelations] = useState<any[]>([]);
+  const [relations, setRelations] = useState<GraphRelation[]>([]);
   const [stats, setStats] = useState<ProfileStats | null>(null);
-  const [radar, setRadar] = useState<any>(null);
+  const [radar, setRadar] = useState<RadarData | null>(null);
   const [recommends, setRecommends] = useState<RecommendedNode[]>([]);
   
   // 知识库分类切换
-  const [knowledgeBases, setKnowledgeBases] = useState<any[]>([]);
+  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [activeKbId, setActiveKbId] = useState<string>("");
 
   // 节点焦点聚焦

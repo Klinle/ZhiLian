@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Message } from "@/types";
+import { Message, Conversation, ConversationDetail } from "@/types";
 import { v4 as uuidv4 } from "uuid";
 import { useSettingsStore, SUPPORTED_MODELS } from "@/stores/settings";
 import { API_BASE_URL, getAuthHeaders } from "@/lib/api";
@@ -13,8 +13,8 @@ export function useChat() {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [workflowSteps, setWorkflowSteps] = useState<WorkflowStep[]>([]);
-  const [conversations, setConversations] = useState<any[]>([]);
-  const [filteredConversations, setFilteredConversations] = useState<any[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [filteredConversations, setFilteredConversations] = useState<Conversation[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
@@ -80,19 +80,19 @@ export function useChat() {
         { headers: getAuthHeaders() }
       );
       if (response.ok) {
-        const data = await response.json();
+        const data: ConversationDetail = await response.json();
         setCurrentConversationId(data.id);
         setMessages(
-          data.messages.map((m: any) => ({
+          data.messages?.map((m) => ({
             id: m.id,
-            role: m.role,
+            role: m.role as 'user' | 'assistant',
             content: m.content,
             createdAt: m.created_at,
-          }))
+          })) || []
         );
         const convModel = SUPPORTED_MODELS.find((m) => m.id === data.model);
         if (convModel) {
-          setModel(data.model);
+          setModel(data.model!);
           setSelectedProvider(convModel.provider);
         }
       }
@@ -206,26 +206,34 @@ export function useChat() {
       if (useMultiAgent) {
         setWorkflowSteps([]);
         await parseSSEStream(response, ({ event, data }) => {
+          const d = data as {
+            status: string;
+            node: string;
+            label: string;
+            message?: string;
+            data?: Record<string, unknown>;
+            text?: string;
+          };
           if (event === "status") {
             setWorkflowSteps((prev) => {
-              if (data.status === "running") {
+              if (d.status === "running") {
                 return [
                   ...prev,
                   {
-                    node: data.node,
-                    label: data.label,
+                    node: d.node,
+                    label: d.label,
                     status: "running" as const,
-                    message: data.message,
+                    message: d.message,
                   },
                 ];
               } else {
                 const newSteps = [...prev];
                 for (let i = newSteps.length - 1; i >= 0; i--) {
-                  if (newSteps[i].node === data.node) {
+                  if (newSteps[i].node === d.node) {
                     newSteps[i] = {
                       ...newSteps[i],
                       status: "done" as const,
-                      data: data.data,
+                      data: d.data,
                     };
                     break;
                   }
@@ -234,7 +242,7 @@ export function useChat() {
               }
             });
           } else if (event === "content") {
-            assistantMessage.content += data.text;
+            assistantMessage.content += d.text || "";
             setMessages((prev) =>
               prev.map((msg) =>
                 msg.id === assistantMessage.id
@@ -243,18 +251,21 @@ export function useChat() {
               )
             );
           } else if (event === "error") {
-            setErrorMessage(data.message || "多Agent工作流执行失败");
+            setErrorMessage(d.message || "多Agent工作流执行失败");
           }
         });
         setWorkflowSteps([]);
       } else {
         const reader = response.body!.getReader();
         const decoder = new TextDecoder();
+        let lastUpdateTime = 0;
+        const UPDATE_INTERVAL = 50; // 50ms 节流，避免每个 token 都触发 ReactMarkdown 重新解析
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          const chunk = decoder.decode(value);
+          // stream:true 保留跨 chunk 的多字节字符（中文）内部状态，避免乱码
+          const chunk = decoder.decode(value, { stream: true });
 
           if (chunk.startsWith("[ERROR]") || (assistantMessage.content === "" && chunk.includes("[ERROR]"))) {
             const errText = (assistantMessage.content + chunk).replace("[ERROR]", "").trim();
@@ -263,14 +274,33 @@ export function useChat() {
           }
 
           assistantMessage.content += chunk;
-          setMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === assistantMessage.id
-                ? { ...msg, content: assistantMessage.content }
-                : msg
-            )
-          );
+          const now = Date.now();
+          if (now - lastUpdateTime >= UPDATE_INTERVAL) {
+            lastUpdateTime = now;
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantMessage.id
+                  ? { ...msg, content: assistantMessage.content }
+                  : msg
+              )
+            );
+          }
         }
+
+        // 刷新 decoder 剩余字节（处理跨 chunk 的多字节字符尾部）
+        const remaining = decoder.decode();
+        if (remaining) {
+          assistantMessage.content += remaining;
+        }
+
+        // 最终更新确保完整内容渲染
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantMessage.id
+              ? { ...msg, content: assistantMessage.content }
+              : msg
+          )
+        );
       }
     } catch (error) {
       console.error("Chat error:", error);

@@ -3,19 +3,13 @@
 import React, { useState, useCallback, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  BookOpen,
   Brain,
-  Award,
   Loader2,
-  Code2,
-  ListChecks,
   Send,
   ChevronRight,
   Sparkles,
   Star,
-  Activity,
   Grid3X3,
-  RefreshCw,
   FolderHeart,
   Check,
   X
@@ -23,13 +17,24 @@ import {
 import { Button } from "@/components/ui/button";
 import { useSettingsStore, SUPPORTED_MODELS } from "@/stores/settings";
 import { labApi, collectionApi, getAuthHeaders } from "@/lib/api";
-import type { Lab, Submission } from "@/types";
+import type { Lab, Submission, CollectionExercise } from "@/types";
 import UserLayout from "@/components/user-layout";
 import ExerciseRenderer from "@/components/exercise-renderer";
 import { cn } from "@/lib/utils";
 
 type ExerciseMode = "system" | "dynamic" | "collection";
 type TabMode = "code" | "quiz" | "match" | "arrange" | "fill";
+
+// 评测结果类型
+interface EvalResult {
+  status: string;
+  score: number;
+  feedback?: string;
+  evaluation_result?: {
+    issues?: string[];
+    suggestions?: string[];
+  };
+}
 
 function PracticeContent() {
   const router = useRouter();
@@ -40,15 +45,15 @@ function PracticeContent() {
 
   const [exerciseMode, setExerciseMode] = useState<ExerciseMode>("system");
   const [tabMode, setTabMode] = useState<TabMode>("code");
-  const [labs, setLabs] = useState<any[]>([]);
-  const [collections, setCollections] = useState<any[]>([]);
+  const [labs, setLabs] = useState<Lab[]>([]);
+  const [collections, setCollections] = useState<CollectionExercise[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedLab, setSelectedLab] = useState<any | null>(null);
+  const [selectedLab, setSelectedLab] = useState<Lab | null>(null);
   
   // 代码实操题专属状态
   const [code, setCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [evalResult, setEvalResult] = useState<any>(null);
+  const [evalResult, setEvalResult] = useState<EvalResult | null>(null);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
 
   // AI 针对性出题专属状态
@@ -60,15 +65,11 @@ function PracticeContent() {
   // 收藏状态
   const [isCollected, setIsCollected] = useState(false);
 
-  const [userRole, setUserRole] = useState<string>("");
-
   useEffect(() => {
     if (typeof window !== "undefined") {
       const token = localStorage.getItem("cognilink_token");
       if (!token) {
         router.push("/login");
-      } else {
-        setUserRole(localStorage.getItem("cognilink_user_role") || "student");
       }
     }
   }, [router]);
@@ -157,7 +158,7 @@ function PracticeContent() {
   }, [exerciseMode, tabMode, nodeId, fetchLabs, fetchCollections]);
 
   // 兼容老数据结构
-  const fullfillLabType = (lab: any) => {
+  const fullfillLabType = (lab: Lab | null): Lab | null => {
     if (!lab) return null;
     return {
       ...lab,
@@ -175,7 +176,7 @@ function PracticeContent() {
   }, [selectedLab, exerciseMode]);
 
   // 切换选中题目
-  const handleSelectLab = async (lab: any) => {
+  const handleSelectLab = async (lab: Lab) => {
     try {
       const fullLab = await labApi.getLab(lab.id);
       setSelectedLab(fullfillLabType(fullLab));
@@ -192,7 +193,7 @@ function PracticeContent() {
     }
   };
 
-  const handleSelectCollection = (col: any) => {
+  const handleSelectCollection = (col: CollectionExercise) => {
     const mappedLab = {
       id: col.id,
       title: col.title,
@@ -259,18 +260,19 @@ function PracticeContent() {
       
       setSelectedLab(result);
       setIsCollected(false);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Generate exercise failed:", error);
-      alert(error.message || "生成练习失败，请检查 API Key 设置");
+      alert(error instanceof Error ? error.message : "生成练习失败，请检查 API Key 设置");
     } finally {
       setDynamicLoading(false);
     }
   };
 
   // 联动收藏与取消收藏
-  const handleToggleCollect = async (targetLab?: any) => {
-    let labToCollect = targetLab || selectedLab;
-    if (!labToCollect) return;
+  const handleToggleCollect = async (targetLab?: Lab) => {
+    const initialLab = targetLab || selectedLab;
+    if (!initialLab) return;
+    let labToCollect: Lab = initialLab;
     try {
       // 列表接口不返回 test_cases，收藏前先获取完整数据
       if (!labToCollect.test_cases && labToCollect.id && exerciseMode === "system") {
@@ -281,8 +283,8 @@ function PracticeContent() {
           console.error("Failed to fetch full lab for collection:", err);
         }
       }
-      const colList = await collectionApi.listCollections();
-      const match = colList.find((c: any) => c.title === labToCollect.title);
+      const colList: CollectionExercise[] = await collectionApi.listCollections();
+      const match = colList.find((c) => c.title === labToCollect.title);
       
       if (match) {
         await collectionApi.deleteCollection(match.id);
@@ -296,7 +298,7 @@ function PracticeContent() {
         await collectionApi.collectExercise({
           node_id: labToCollect.node_id || undefined,
           title: labToCollect.title,
-          exercise_type: labToCollect.lab_type,
+          exercise_type: labToCollect.lab_type || "code",
           content: labToCollect.test_cases || {},
           answer: labToCollect.answer || labToCollect.test_cases?.pairs || labToCollect.test_cases?.correct_order || labToCollect.test_cases?.blanks || {},
           explanation: labToCollect.detailed_explanation
@@ -311,7 +313,7 @@ function PracticeContent() {
   };
 
   // Renderer 答题提交的回调
-  const handleRendererSubmit = async (result: { score: number; passed: boolean; answers: any }) => {
+  const handleRendererSubmit = async (result: { score: number; passed: boolean; answers: Record<string, unknown> }) => {
     // 如果是内置 Labs，则需要并行提交通关数据到后端记录 submission 并联动更新点亮/熟练度
     if (exerciseMode === "system") {
       try {
@@ -322,7 +324,7 @@ function PracticeContent() {
             undefined,
             undefined,
             undefined,
-            singleAnswer
+            singleAnswer as Record<string, number>
           );
         });
         await Promise.all(promises);
@@ -331,23 +333,24 @@ function PracticeContent() {
       }
     } 
     // 如果是动态生成题目，则联动 evaluate-dynamic 进行点亮
-    else if (exerciseMode === "dynamic" && result.passed) {
+    else if (exerciseMode === "dynamic" && result.passed && selectedLab) {
+      const lab = selectedLab;
       try {
-        const promises = Object.entries(result.answers).map(([_, singleAnswer]) => {
+        const promises = Object.entries(result.answers).map(([, singleAnswer]) => {
           return fetch(`${baseUrl || "http://localhost:8000"}/api/labs/evaluate-dynamic`, {
             method: "POST",
             headers: getAuthHeaders(),
             body: JSON.stringify({
               exercise: {
-                title: selectedLab.title,
-                description: selectedLab.description,
-                starter_code: selectedLab.starter_code,
-                test_cases: selectedLab.test_cases,
-                lab_type: selectedLab.lab_type,
+                title: lab.title,
+                description: lab.description,
+                starter_code: lab.starter_code,
+                test_cases: lab.test_cases,
+                lab_type: lab.lab_type,
               },
               code: "",
               answers: singleAnswer,
-              node_id: selectedLab.node_id || undefined,
+              node_id: lab.node_id || undefined,
               api_key: apiKey,
               model,
               base_url: baseUrl,
@@ -730,10 +733,10 @@ function PracticeContent() {
                         <p className="text-[10px] text-slate-450 mt-0.5">{evalResult.feedback}</p>
                       </div>
                     </div>
-                    {evalResult.evaluation_result?.issues?.length > 0 && (
+                    {(evalResult.evaluation_result?.issues?.length ?? 0) > 0 && (
                       <div className="space-y-1">
                         <p className="text-[10px] font-bold text-slate-600 dark:text-slate-350">发现的问题:</p>
-                        {evalResult.evaluation_result.issues.map((issue: string, i: number) => (
+                        {evalResult.evaluation_result?.issues?.map((issue: string, i: number) => (
                           <div key={i} className="flex items-start gap-2 text-[10px] text-slate-500">
                             <X className="h-3 w-3 text-rose-450 shrink-0 mt-0.5" />
                             <span>{issue}</span>
@@ -741,10 +744,10 @@ function PracticeContent() {
                         ))}
                       </div>
                     )}
-                    {evalResult.evaluation_result?.suggestions?.length > 0 && (
+                    {(evalResult.evaluation_result?.suggestions?.length ?? 0) > 0 && (
                       <div className="space-y-1">
                         <p className="text-[10px] font-bold text-slate-605 dark:text-slate-300">优化建议:</p>
-                        {evalResult.evaluation_result.suggestions.map((sug: string, i: number) => (
+                        {evalResult.evaluation_result?.suggestions?.map((sug: string, i: number) => (
                           <div key={i} className="flex items-start gap-2 text-[10px] text-slate-500">
                             <Check className="h-3 w-3 text-emerald-450 shrink-0 mt-0.5" />
                             <span>{sug}</span>
@@ -776,7 +779,7 @@ function PracticeContent() {
               /* Other Interactive Question Types */
               (() => {
                 // 在 system 模式下，需要用带详情的 selectedLab 替换列表中对应的元素，防止列表接口字段丢失
-                const displayLabs = labs.map((l: any) => (selectedLab && l.id === selectedLab.id) ? selectedLab : l);
+                const displayLabs = labs.map((l: Lab) => (selectedLab && l.id === selectedLab.id) ? selectedLab : l);
                 return (
                   <ExerciseRenderer
                     labs={exerciseMode === "system" ? displayLabs : selectedLab ? [selectedLab] : []}
