@@ -103,7 +103,7 @@ export default function MemoriesPage() {
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [newWhitelistItem, setNewWhitelistItem] = useState("");
   const [newBlacklistItem, setNewBlacklistItem] = useState("");
-  const { apiKeys, openaiApiKey, model, baseUrls, useLocalEmbedding } = useSettingsStore();
+  const { apiKeys, openaiApiKey, model, baseUrls } = useSettingsStore();
 
   // Get current model's provider and API key
   const currentModel = SUPPORTED_MODELS.find((m) => m.id === model);
@@ -162,19 +162,12 @@ export default function MemoriesPage() {
       alert("请输入记忆内容");
       return;
     }
-    if (!useLocalEmbedding && !apiKey) {
-      alert(
-        `请在设置中配置 ${currentModel?.provider || "当前模型"} 的 API 密钥，或开启本地嵌入`,
-      );
-      return;
-    }
-
     try {
       const params = new URLSearchParams();
       params.append("api_key", apiKey);
       params.append("provider", provider);
       if (baseUrl) params.append("base_url", baseUrl);
-      params.append("use_local_embedding", String(useLocalEmbedding));
+      params.append("use_local_embedding", "true");
 
       const response = await fetch(
         `${API_BASE_URL}/api/memories/?${params.toString()}`,
@@ -285,13 +278,6 @@ export default function MemoriesPage() {
       alert("请输入搜索内容");
       return;
     }
-    if (!useLocalEmbedding && !apiKey) {
-      alert(
-        `请在设置中配置 ${currentModel?.provider || "当前模型"} 的 API 密钥，或开启本地嵌入`,
-      );
-      return;
-    }
-
     setIsLoading(true);
     try {
       const params = new URLSearchParams();
@@ -299,7 +285,7 @@ export default function MemoriesPage() {
       params.append("api_key", apiKey);
       params.append("provider", provider);
       if (baseUrl) params.append("base_url", baseUrl);
-      params.append("use_local_embedding", String(useLocalEmbedding));
+      params.append("use_local_embedding", "true");
 
       const response = await fetch(
         `${API_BASE_URL}/api/memories/search?${params.toString()}`,

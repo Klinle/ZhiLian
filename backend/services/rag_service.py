@@ -1,7 +1,7 @@
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, func
-from models.database import DocumentChunk, Document
+from models.database import DocumentChunk, Document, KnowledgeNode
 from services.embedding_service import embedding_service
 import uuid
 
@@ -17,33 +17,43 @@ class RAGService:
         document_ids: Optional[List[str]] = None,
         use_local: bool = False,
         user_id: str = None,
+        domain: Optional[str] = None,
     ) -> List[DocumentChunk]:
-        """Search for similar chunks using vector similarity.
+        """向量密集检索：使用 pgvector 余弦相似度搜索。
 
         Args:
-            document_ids: Optional list of document UUIDs to filter search scope.
-            use_local: If True, use local Ollama BGE-M3 for query embedding.
-            user_id: If provided, filter to user's private docs + shared docs.
+            document_ids: 可选的文档 UUID 列表，限定检索范围。
+            use_local: 若为 True，使用本地 Ollama BGE-M3 生成查询向量。
+            user_id: 若提供，仅检索用户私有文档 + 共享文档。
+            domain: 若提供（如 'os'/'network' 等），仅检索关联到该领域知识节点的 chunk，
+                    或未关联任何节点的 chunk（保底召回）。
         """
-        # Get query embedding
         query_embedding = await embedding_service.get_single_embedding(
             query, api_key, provider, base_url, use_local
         )
 
-        # Build query with optional document filter
         stmt = select(DocumentChunk)
         if document_ids:
             stmt = stmt.where(DocumentChunk.document_id.in_(document_ids))
-        # Always join Document to filter out disabled documents
         stmt = stmt.join(Document, DocumentChunk.document_id == Document.id).where(
             Document.is_active == 1
         )
-        # Filter by user_id: only return chunks from user's own docs or shared docs
         if user_id:
             stmt = stmt.where(
                 or_(
                     Document.owner_id == uuid.UUID(user_id),
                     Document.visibility == "shared",
+                )
+            )
+        # 领域过滤：只检索该领域关联 chunk，或未关联节点的 chunk（保底）
+        if domain:
+            domain_node_ids = select(KnowledgeNode.id).where(
+                KnowledgeNode.category == domain
+            )
+            stmt = stmt.where(
+                or_(
+                    DocumentChunk.node_id.in_(domain_node_ids),
+                    DocumentChunk.node_id.is_(None),
                 )
             )
         stmt = stmt.order_by(
@@ -60,11 +70,11 @@ class RAGService:
         limit: int,
         document_ids: Optional[List[str]] = None,
         user_id: str = None,
+        domain: Optional[str] = None,
     ) -> List[DocumentChunk]:
-        """BM25-like sparse retrieval using PostgreSQL full-text search.
+        """BM25 稀疏检索：利用 PostgreSQL 全文检索 (to_tsvector + plainto_tsquery + ts_rank)。
 
-        Uses to_tsvector + plainto_tsquery + ts_rank for keyword-based scoring.
-        Falls back to empty list if full-text search fails.
+        失败时回退为空列表，仅依赖向量检索。
         """
         try:
             tsvector = func.to_tsvector('simple', DocumentChunk.content)
@@ -76,7 +86,6 @@ class RAGService:
             if document_ids:
                 stmt = stmt.where(DocumentChunk.document_id.in_(document_ids))
 
-            # Always join Document to filter out disabled documents
             stmt = stmt.join(Document, DocumentChunk.document_id == Document.id).where(
                 Document.is_active == 1
             )
@@ -86,6 +95,18 @@ class RAGService:
                     or_(
                         Document.owner_id == uuid.UUID(user_id),
                         Document.visibility == "shared",
+                    )
+                )
+
+            # 领域过滤：只检索该领域关联 chunk，或未关联节点的 chunk（保底）
+            if domain:
+                domain_node_ids = select(KnowledgeNode.id).where(
+                    KnowledgeNode.category == domain
+                )
+                stmt = stmt.where(
+                    or_(
+                        DocumentChunk.node_id.in_(domain_node_ids),
+                        DocumentChunk.node_id.is_(None),
                     )
                 )
 
@@ -108,24 +129,25 @@ class RAGService:
         document_ids: Optional[List[str]] = None,
         use_local: bool = False,
         user_id: str = None,
+        domain: Optional[str] = None,
     ) -> List[DocumentChunk]:
-        """Hybrid search: BM25 sparse retrieval + vector dense retrieval + RRF fusion.
+        """混合检索：BM25 稀疏检索 + 向量密集检索 + RRF 融合。
 
-        Combines keyword-based (BM25) and semantic (vector) search using
-        Reciprocal Rank Fusion (RRF) for improved retrieval quality.
+        通过 Reciprocal Rank Fusion (RRF) 合并关键词匹配和语义匹配结果，提升召回质量。
+        domain 参数可限定检索到特定知识领域，避免跨领域噪声。
         """
-        RRF_K = 60  # Standard RRF constant
-        retrieval_k = max(limit * 3, 15)  # Over-fetch for better fusion
+        RRF_K = 60
+        retrieval_k = max(limit * 3, 15)
 
-        # 1. BM25 sparse retrieval
+        # 1. BM25 稀疏检索
         sparse_chunks = await self._bm25_search(
-            query, session, retrieval_k, document_ids, user_id
+            query, session, retrieval_k, document_ids, user_id, domain
         )
 
-        # 2. Vector dense retrieval
+        # 2. 向量密集检索
         dense_chunks = await self.search_similar(
             query, api_key, session, retrieval_k, provider, base_url,
-            document_ids, use_local, user_id
+            document_ids, use_local, user_id, domain
         )
 
         # 3. RRF fusion
@@ -173,16 +195,17 @@ class RAGService:
         document_ids: Optional[List[str]] = None,
         use_local: bool = False,
         user_id: str = None,
+        domain: Optional[str] = None,
     ) -> str:
-        """Get relevant context for a query, with source annotations.
+        """获取查询的相关上下文，带来源标注。
 
-        Uses hybrid search (BM25 + vector + RRF) for improved retrieval.
-        Returns a formatted string with [来源: 文档名, 第X页] annotations
-        for each retrieved chunk.
+        使用混合检索 (BM25 + 向量 + RRF)，返回格式化字符串，
+        每个检索到的 chunk 附带 [来源: 文档名, 第X页] 标注。
+        domain 参数可限定检索到特定知识领域。
         """
         chunks = await self.hybrid_search(
             query, api_key, session, limit, provider, base_url,
-            document_ids, use_local, user_id
+            document_ids, use_local, user_id, domain
         )
 
         if not chunks:

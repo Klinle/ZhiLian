@@ -14,6 +14,7 @@ from models.database import (
     KnowledgeNode,
     KnowledgeRelation,
     DocumentChunk,
+    Document,
 )
 
 litellm = import_module("litellm")
@@ -269,6 +270,60 @@ class KnowledgeExtractionService:
             return result
         except Exception as e:
             print(f"[KnowledgeExtraction] LLM call error: {e}")
+            return None
+
+    async def _call_llm_json(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        api_key: str,
+        model: str,
+        base_url: str,
+        temperature: float = 0.3,
+    ) -> Optional[dict]:
+        """
+        通用 LLM 调用，返回解析后的 JSON 字典。
+
+        处理 markdown code block 包裹的 JSON 响应，
+        解析失败时返回 None。
+        """
+        litellm_model = model
+        if base_url and not litellm_model.startswith("openai/"):
+            litellm_model = f"openai/{litellm_model}"
+
+        kwargs: Dict[str, Any] = {
+            "model": litellm_model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "api_key": api_key,
+            "stream": False,
+            "temperature": temperature,
+        }
+
+        if base_url:
+            kwargs["api_base"] = base_url
+
+        try:
+            response = await acompletion(**kwargs)
+            content = response.choices[0].message.content
+
+            # Parse JSON from response (handle markdown code blocks)
+            json_match = re.search(r"```json\s*(.*?)\s*```", content, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(1)
+            else:
+                json_match = re.search(r"\{.*\}", content, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group(0)
+                else:
+                    json_str = content
+
+            result = json.loads(json_str)
+            return result
+        except Exception as e:
+            print(f"[KnowledgeExtraction] _call_llm_json error: {e}")
             return None
 
     async def extract_book_nodes(

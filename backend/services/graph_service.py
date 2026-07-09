@@ -1,12 +1,14 @@
 """
 LangGraph 多 Agent 协同工作流服务
-- 基于 StateGraph 编排 Orchestrator → RagBot → Reviewer 工作流
+- 图内：StateGraph 编排 Orchestrator → RagBot → END（意图分类 + 领域过滤检索）
+- 图外：构建 system_prompt 后真流式调用 LLM 生成回答
 - Orchestrator 单次 LLM 调用同时分类知识领域（domain）和教学风格（style）
-- RagBot 执行混合检索（BM25 + 向量 + RRF）
-- Reviewer 组合三段 prompt 生成最终回答：
-  1. 风格 prompt（HOW）— 从 Agent 表查询风格导师 system_prompt，手动选择优先于自动分类
+- RagBot 执行领域过滤的混合检索（BM25 + 向量 + RRF），domain 传入检索层
+- 最终回答的 system_prompt 组合：
+  1. 风格 prompt（HOW）— 从 Agent 表查询，手动选择优先于自动分类
   2. 领域 prompt（WHAT）— 从 DOMAINS 字典获取领域专属导师人设
-  3. 认知状态（针对谁）— 查询用户知识状态，注入薄弱点和已掌握情况
+  3. RAG 上下文 — 图内 RagBot 检索结果
+  4. 认知状态（针对谁）— 查询用户知识状态，注入薄弱点和已掌握情况
 """
 
 import json
@@ -83,6 +85,10 @@ class AgentState(TypedDict, total=False):
     base_url: Optional[str]           # 自定义 API 地址
     session: Any                      # 数据库会话（RagBot 检索需要）
     user_message: str                 # 当前用户消息
+    use_memory: bool                  # 是否注入用户记忆
+    use_tools: bool                   # 是否启用工具调用
+    use_local_embedding: bool         # 是否使用本地 BGE-M3 嵌入（须与文档上传时一致）
+    use_rag: bool                     # 是否启用 RAG 检索
 
 
 class GraphService:
@@ -193,23 +199,26 @@ class GraphService:
 
     def route_to_agents(self, state: AgentState) -> str:
         """
-        条件路由函数：根据分类领域决定下一个节点
+        条件路由函数：根据分类领域和 use_rag 决定下一个节点
 
-        六大知识领域 → rag_bot（执行混合检索）
-        general → reviewer（直接生成通用回答）
+        - use_rag=False → 跳过 RAG，直接结束
+        - use_rag=True + 六大知识领域 → rag_bot（领域过滤检索）
+        - use_rag=True + general → rag_bot（无领域过滤，保底检索全部文档）
         """
-        domain = state.get("classified_domain", "general")
+        use_rag = state.get("use_rag", True)
+        if not use_rag:
+            return "reviewer"
 
-        if domain in DOMAINS:
-            return "rag_bot"
-        return "reviewer"
+        # use_rag=True 时，无论领域如何都进入 rag_bot
+        # general 域时不做领域过滤（在 rag_bot_node 中处理）
+        return "rag_bot"
 
     async def rag_bot_node(self, state: AgentState) -> dict:
         """
-        RagBot 节点：执行混合检索，返回知识库上下文
+        RagBot 节点：执行领域过滤的混合检索，返回知识库上下文
 
-        调用 rag_service.get_context_for_query()，
-        将检索结果存入 agent_results["rag"]。
+        从 state 中读取 classified_domain，传入 rag_service 做领域过滤。
+        检索结果存入 agent_results["rag"]。
         """
         from services.rag_service import rag_service
 
@@ -218,6 +227,10 @@ class GraphService:
         base_url = state.get("base_url")
         session = state.get("session")
         user_id = state.get("user_id", "")
+        domain = state.get("classified_domain", "general")
+
+        # general 域不做领域过滤，检索全部文档（用户上传的非 Python 文档也能被召回）
+        retrieval_domain = domain if domain in DOMAINS else None
 
         agent_results = state.get("agent_results", {})
 
@@ -232,11 +245,15 @@ class GraphService:
                 session,
                 provider="openai",
                 base_url=base_url,
-                use_local=False,
+                use_local=True,  # 固定使用本地 BGE-M3
                 user_id=user_id,
+                domain=retrieval_domain,
             )
             agent_results["rag"] = {"context": rag_context or "", "error": None}
+            if not rag_context:
+                print(f"[RagBot] 检索返回空上下文 (domain={retrieval_domain}, query={user_message[:50]})")
         except Exception as e:
+            print(f"[RagBot] 检索失败: {type(e).__name__}: {e}")
             agent_results["rag"] = {"context": "", "error": str(e)}
 
         return {"agent_results": agent_results}
@@ -447,43 +464,93 @@ class GraphService:
 
         return base_prompt + cognitive
 
+    async def _build_reviewer_prompt(
+        self,
+        state: AgentState,
+        domain: str,
+        style: str,
+        rag_context: str,
+    ) -> str:
+        """
+        组装最终回答的 system_prompt（图外执行，提取自原 reviewer_node 逻辑）。
+
+        四段组合：
+        1. 风格 prompt（HOW）— 从 Agent 表查询，手动选择优先于自动分类
+        2. 领域 prompt（WHAT）— 从 DOMAINS 字典获取
+        3. RAG 上下文 — 图内 RagBot 检索结果
+        4. 认知状态（针对谁）— 查询用户知识状态
+        """
+        agent_id = state.get("agent_id")
+        user_id = state.get("user_id", "")
+        session = state.get("session")
+
+        # 1. 确定教学风格 prompt（手动选择优先于自动分类）
+        style_prompt = ""
+        if agent_id and agent_id != "auto":
+            style_prompt = await self._fetch_style_prompt(session, agent_id)
+        elif style and style != "general":
+            style_prompt = await self._fetch_style_prompt(session, style)
+
+        # 2. 获取领域 prompt（WHAT）
+        domain_info = DOMAINS.get(domain)
+        domain_prompt = domain_info["mentor"] if domain_info else ""
+
+        # 3. 组合 system_prompt
+        parts: list[str] = []
+        if style_prompt:
+            parts.append(style_prompt)
+        if domain_prompt:
+            parts.append(f"## 当前教学领域\n{domain_prompt}")
+        else:
+            if not style_prompt:
+                parts.append("你是一个友好的 AI 助手，请回答用户的问题。")
+        if rag_context:
+            parts.append(
+                f"## 知识库参考资料\n{rag_context}\n\n"
+                "请基于以上参考资料回答用户问题，并在回答中适当引用来源。"
+                "如果参考资料中没有直接相关的内容，请基于你的专业知识回答。"
+            )
+
+        system_prompt = "\n\n".join(parts)
+
+        # 4. 注入用户认知状态
+        if user_id and session:
+            system_prompt = await self._inject_cognitive_state(
+                session, user_id, system_prompt
+            )
+
+        return system_prompt
+
     def _build_workflow(self):
         """
-        构建 LangGraph StateGraph 工作流
+        构建 LangGraph StateGraph 工作流。
 
-        工作流拓扑：
-        Orchestrator → (条件路由) → RagBot → Reviewer → END
-                                     或
-                                   Reviewer → END（general 领域直接跳过检索）
+        图拓扑（图内仅负责意图分类 + 检索，回答生成在图外真流式执行）：
+        Orchestrator → (条件路由) → RagBot → END
+                       或
+                     END（general 领域直接结束，跳过检索）
 
         Returns:
             编译后的 LangGraph 可执行 app
         """
         workflow = StateGraph(AgentState)
 
-        # 添加节点
         workflow.add_node("orchestrator", self.orchestrator_node)
         workflow.add_node("rag_bot", self.rag_bot_node)
-        workflow.add_node("reviewer", self.reviewer_node)
 
-        # 设置入口点
         workflow.set_entry_point("orchestrator")
 
-        # 条件路由：六大领域 → rag_bot，general → reviewer
+        # 条件路由：六大领域 → rag_bot，general → END
         workflow.add_conditional_edges(
             "orchestrator",
             self.route_to_agents,
             {
                 "rag_bot": "rag_bot",
-                "reviewer": "reviewer",
+                "reviewer": END,
             },
         )
 
-        # RagBot 执行后进入 Reviewer 生成最终回答
-        workflow.add_edge("rag_bot", "reviewer")
-
-        # Reviewer → END
-        workflow.add_edge("reviewer", END)
+        workflow.add_edge("rag_bot", END)
 
         return workflow.compile()
 
@@ -506,13 +573,17 @@ class GraphService:
         """
         流式执行多 Agent 工作流，yield 事件字典。
 
-        用于 SSE 端点，前端可实时展示各节点工作状态和最终回答。
+        两阶段架构：
+        - Phase 1: 图内执行 Orchestrator（意图分类）+ 可选 RagBot（领域过滤检索）
+        - Phase 2: 图外构建 system_prompt 后，真流式调用 LLM 生成回答
 
         事件类型：
         - status: {type, node, label, status, message?, data?}
-        - content: {type, text}
+        - content: {type, text}  — 逐字实时输出
         - done: {type}
         """
+        from services.llm_service import llm_service
+
         if self._app is None:
             self._app = self._build_workflow()
 
@@ -523,6 +594,10 @@ class GraphService:
             "reviewer": "生成回答",
         }
 
+        classified_domain = "general"
+        classified_style = "general"
+        rag_context = ""
+
         # 1. 发送 orchestrator running 事件
         yield {
             "type": "status",
@@ -532,11 +607,7 @@ class GraphService:
             "message": "正在分析问题领域...",
         }
 
-        final_answer = ""
-        classified_domain = "general"
-        classified_style = "general"
-
-        # 2. 流式执行，每个节点完成后获取状态更新
+        # Phase 1: 运行图（Orchestrator + 可选 RagBot），收集状态
         async for chunk in self._app.astream(state, stream_mode="updates"):
             for node_name, state_update in chunk.items():
                 if node_name == "orchestrator":
@@ -556,18 +627,23 @@ class GraphService:
                             "sub_tasks": sub_tasks,
                         },
                     }
-                    # 预测下一个节点
-                    next_node = self.route_to_agents({"classified_domain": classified_domain})
+                    # 预测下一个节点（传入 use_rag 以匹配路由逻辑）
+                    use_rag = state.get("use_rag", True)
+                    next_node = self.route_to_agents({
+                        "classified_domain": classified_domain,
+                        "use_rag": use_rag,
+                    })
                     if next_node == "rag_bot":
+                        domain_zh = DOMAINS.get(classified_domain, {}).get("zh", "全部")
                         yield {
                             "type": "status",
                             "node": "rag_bot",
                             "label": node_labels["rag_bot"],
                             "status": "running",
-                            "message": f"正在检索{DOMAINS.get(classified_domain, {}).get('zh', '')}知识库...",
+                            "message": f"正在检索{domain_zh}知识库...",
                         }
                     else:
-                        # general 域直接到 reviewer
+                        # use_rag=False 或跳过 RagBot，直接进入 reviewer
                         yield {
                             "type": "status",
                             "node": "reviewer",
@@ -578,6 +654,7 @@ class GraphService:
 
                 elif node_name == "rag_bot":
                     agent_results = state_update.get("agent_results", {})
+                    rag_context = agent_results.get("rag", {}).get("context", "")
                     yield {
                         "type": "status",
                         "node": "rag_bot",
@@ -585,7 +662,7 @@ class GraphService:
                         "status": "done",
                         "data": agent_results,
                     }
-                    # 下一步是 reviewer
+                    # RagBot 完成后进入 reviewer
                     yield {
                         "type": "status",
                         "node": "reviewer",
@@ -594,22 +671,46 @@ class GraphService:
                         "message": "正在基于知识库生成回答...",
                     }
 
-                elif node_name == "reviewer":
-                    final_answer = state_update.get("final_answer", "")
-                    yield {
-                        "type": "status",
-                        "node": "reviewer",
-                        "label": node_labels["reviewer"],
-                        "status": "done",
-                    }
+        # Phase 2: 构建 system_prompt（图外执行）
+        system_prompt = await self._build_reviewer_prompt(
+            state, classified_domain, classified_style, rag_context
+        )
 
-        # 3. 将最终回答分块 yield（假流式，保持逐字输出体验）
-        if final_answer:
-            chunk_size = 20
-            for i in range(0, len(final_answer), chunk_size):
-                yield {"type": "content", "text": final_answer[i:i + chunk_size]}
+        # Phase 3: 真流式 LLM 生成
+        user_message = state.get("user_message", "")
+        api_key = state.get("api_key", "")
+        model = state.get("model", "")
+        base_url = state.get("base_url")
+        use_memory = state.get("use_memory", False)
+        use_tools = state.get("use_tools", False)
+        session = state.get("session")
+        history = state.get("messages", [])
+        user_id = state.get("user_id", "")
 
-        # 4. 发送完成事件
+        async for text_chunk in llm_service.stream_chat(
+            message=user_message,
+            api_key=api_key,
+            model=model,
+            use_rag=False,
+            use_memory=use_memory,
+            use_tools=use_tools,
+            base_url=base_url,
+            session=session,
+            history=history,
+            user_id=user_id,
+            system_prompt=system_prompt,
+        ):
+            yield {"type": "content", "text": text_chunk}
+
+        # reviewer 完成
+        yield {
+            "type": "status",
+            "node": "reviewer",
+            "label": node_labels["reviewer"],
+            "status": "done",
+        }
+
+        # 发送完成事件
         yield {"type": "done"}
 
 

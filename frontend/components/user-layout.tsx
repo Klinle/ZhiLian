@@ -79,6 +79,8 @@ export default function UserLayout({ children, activePath }: UserLayoutProps) {
       localStorage.removeItem("cognilink_user_role");
       localStorage.removeItem("cognilink_user_nickname");
       document.cookie = "cognilink_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+      // 通知全局 AI 助手重置状态（同标签页登出感知）
+      window.dispatchEvent(new Event("cognilink-logout"));
       router.push("/login");
     }
   };

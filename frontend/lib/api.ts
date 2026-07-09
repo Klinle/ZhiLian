@@ -62,7 +62,7 @@ export const chatApi = {
         use_rag: data.useRag ?? false,
         use_memory: data.useMemory ?? false,
         use_tools: data.useTools ?? false,
-        use_local_embedding: data.useLocalEmbedding ?? false,
+        use_local_embedding: true, // 固定使用本地 BGE-M3
         agentId: data.agentId,
       }),
     });

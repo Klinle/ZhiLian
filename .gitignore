@@ -61,13 +61,13 @@ backend/uploads/
 *.log
 server.log
 logs/
-tunnel-logs/
 
 # ── IDE / 编辑器 ────────────────────
 .idea/
 .vscode/
 *.swp
-*.swo
+*.swtunnel-logs/
+o
 .DS_Store
 Thumbs.db
 

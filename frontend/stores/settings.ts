@@ -148,10 +148,11 @@ interface SettingsStore {
   selectedProvider: string;
 
   // Feature toggles (persisted)
-  useRAG: boolean;
+  useRAG: boolean;          // true=自动意图驱动RAG（默认），false=禁用RAG纯LLM对话
   useMemory: boolean;
   useTools: boolean;
   useLocalEmbedding: boolean;
+  /** @deprecated 统一智能路径已不再需要手动切换，保留仅为向后兼容持久化存储 */
   useMultiAgent: boolean;
 
   // Actions
@@ -183,11 +184,11 @@ export const useSettingsStore = create<SettingsStore>()(
       selectedProvider: "deepseek",
 
       // Feature toggles
-      useRAG: true,   // 知识库 RAG 默认开启，后续将导入六大领域知识点
+      useRAG: true,   // 自动意图驱动RAG，由 Orchestrator 分类决定是否检索
       useMemory: false,
       useTools: false,
-      useLocalEmbedding: false,
-      useMultiAgent: false,
+      useLocalEmbedding: true,  // 固定使用本地 BGE-M3 嵌入模型
+      useMultiAgent: false, // deprecated: 统一路径不再需要手动切换
 
       setOpenaiApiKey: (key) => set({ openaiApiKey: key }),
       setModel: (model) => set({ model }),

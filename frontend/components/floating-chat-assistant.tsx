@@ -7,7 +7,6 @@ import { useChat } from "@/hooks/use-chat";
 import {
   Sparkles,
   X,
-  Bot,
   Brain,
   BookOpen,
   Wrench,
@@ -57,11 +56,9 @@ export default function FloatingChatAssistant() {
     useRAG,
     useMemory,
     useTools,
-    useMultiAgent,
     setUseRAG,
     setUseMemory,
     setUseTools,
-    setUseMultiAgent,
   } = useSettingsStore();
 
   const {
@@ -72,6 +69,7 @@ export default function FloatingChatAssistant() {
     workflowSteps,
     conversations,
     currentConversationId,
+    setCurrentConversationId,
     selectedAgentId,
     setSelectedAgentId,
     fetchConversations,
@@ -97,6 +95,41 @@ export default function FloatingChatAssistant() {
   const dragStart = useRef({ x: 0, y: 0, posX: 0, posY: 0, time: 0 });
   // 用 ref 同步追踪最新位置，规避 mouseup 回调中的闭包陷阱
   const positionRef = useRef({ x: 0, y: 0 });
+
+  // 认证状态：未登录时不渲染助手（解决登录页显示问题）
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  // 追踪上一次的 token 值，检测用户切换
+  const prevTokenRef = useRef<string | null>(null);
+
+  // 认证检查 + 用户切换检测
+  useEffect(() => {
+    const checkAuth = () => {
+      const token = localStorage.getItem("cognilink_token");
+      // token 变化（登出 / 换用户登录）时重置聊天状态
+      if (prevTokenRef.current !== token) {
+        if (prevTokenRef.current !== null) {
+          // 不是首次挂载，说明用户切换了，清空前用户的状态
+          setMessages([]);
+          setCurrentConversationId(null);
+          closeAssistant();
+        }
+        prevTokenRef.current = token;
+      }
+      setIsAuthenticated(!!token);
+    };
+    checkAuth();
+    // 跨标签页登出感知
+    window.addEventListener("storage", checkAuth);
+    // 同标签页内登出（handleLogout dispatch 自定义事件）
+    window.addEventListener("cognilink-logout", checkAuth);
+    // 同标签页内登录（从 login 页跳回后重新检测）
+    window.addEventListener("focus", checkAuth);
+    return () => {
+      window.removeEventListener("storage", checkAuth);
+      window.removeEventListener("cognilink-logout", checkAuth);
+      window.removeEventListener("focus", checkAuth);
+    };
+  }, [setMessages, setCurrentConversationId, closeAssistant]);
 
   // 初始化加载位置
   useEffect(() => {
@@ -447,6 +480,10 @@ export default function FloatingChatAssistant() {
     );
   };
 
+  // 未登录时不渲染助手（登录页等无 token 页面）
+  // 放在所有 hooks 之后，避免违反 Rules of Hooks
+  if (!isAuthenticated) return null;
+
   if (!isOpen) {
     // 收起形态：可拖动 8-bit 卡通像素人（采用完全透明背景，松开吸附边缘）
     return (
@@ -679,17 +716,6 @@ export default function FloatingChatAssistant() {
           >
             <Wrench className="h-3.5 w-3.5" />
           </button>
-          <button
-            onClick={() => setUseMultiAgent(!useMultiAgent)}
-            className={`p-1.5 rounded-xl border-2 transition-all cursor-pointer shadow-[1.5px_1.5px_0px_0px_rgba(0,0,0,1)] active:translate-y-0.5 active:shadow-[0.5px_0.5px_0px_0px_rgba(0,0,0,1)] ${
-              useMultiAgent
-                ? "bg-amber-100 border-black text-black font-black"
-                : "bg-white border-black text-zinc-400 hover:bg-amber-50"
-            }`}
-            title={`多 Agent 协同: ${useMultiAgent ? "开启" : "关闭"}`}
-          >
-            <Bot className="h-3.5 w-3.5" />
-          </button>
         </div>
       </div>
 
@@ -768,12 +794,12 @@ export default function FloatingChatAssistant() {
           })
         )}
 
-        {/* 多 Agent 协同监控 */}
-        {useMultiAgent && workflowSteps.length > 0 && (
+        {/* 智能工作流监控 */}
+        {workflowSteps.length > 0 && (
           <div className="border-2 border-black rounded-2xl p-3 bg-white dark:bg-zinc-900 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] animate-in fade-in duration-200 font-sans">
             <h4 className="text-[10px] font-black text-black dark:text-indigo-400 mb-2.5 flex items-center gap-1">
               <Network className="h-3.5 w-3.5 animate-spin" />
-              多 Agent 协同流程监控
+              智能工作流流程监控
             </h4>
             <WorkflowPanel steps={workflowSteps} />
           </div>

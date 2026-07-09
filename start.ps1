@@ -40,9 +40,9 @@ if (-not $SkipDb) {
     if ($running -eq "knowledge-assistant-db") {
         Write-Host "  数据库已在运行中，跳过" -ForegroundColor Green
     } else {
-        # 启动或创建容器
+        # 启动或创建容器（仅启动数据库，后端/前端由本地 venv/npm 运行）
         Push-Location $ROOT
-        docker compose up -d
+        docker compose up -d postgres
         Pop-Location
         if ($LASTEXITCODE -ne 0) {
             Write-Host "  数据库启动失败！" -ForegroundColor Red

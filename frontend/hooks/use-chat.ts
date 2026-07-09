@@ -29,8 +29,6 @@ export function useChat() {
     useRAG,
     useMemory,
     useTools,
-    useLocalEmbedding,
-    useMultiAgent,
   } = useSettingsStore();
 
   const apiKey = getEffectiveApiKey();
@@ -152,7 +150,7 @@ export function useChat() {
     setIsLoading(true);
 
     try {
-      const endpoint = useMultiAgent ? "/api/chat/graph" : "/api/chat/rag";
+      const endpoint = "/api/chat/graph";
       const MAX_HISTORY_MESSAGES = 100;
       const historyMessages = messages
         .slice(-MAX_HISTORY_MESSAGES)
@@ -173,7 +171,7 @@ export function useChat() {
         use_rag: useRAG,
         use_memory: useMemory,
         use_tools: useTools,
-        use_local_embedding: useLocalEmbedding,
+        use_local_embedding: true,  // 固定使用本地 BGE-M3
         agentId: selectedAgentId !== "auto" ? selectedAgentId : undefined,
         context_node_id: customContextNodeId || undefined
       };
@@ -203,91 +201,48 @@ export function useChat() {
       };
       setMessages((prev) => [...prev, assistantMessage]);
 
-      if (useMultiAgent) {
-        setWorkflowSteps([]);
-        let lastUpdateTime = 0;
-        const UPDATE_INTERVAL = 30; // 30ms 节流，纯文本渲染足够快
-        await parseSSEStream(response, ({ event, data }) => {
-          const d = data as {
-            status: string;
-            node: string;
-            label: string;
-            message?: string;
-            data?: Record<string, unknown>;
-            text?: string;
-          };
-          if (event === "status") {
-            setWorkflowSteps((prev) => {
-              if (d.status === "running") {
-                return [
-                  ...prev,
-                  {
-                    node: d.node,
-                    label: d.label,
-                    status: "running" as const,
-                    message: d.message,
-                  },
-                ];
-              } else {
-                const newSteps = [...prev];
-                for (let i = newSteps.length - 1; i >= 0; i--) {
-                  if (newSteps[i].node === d.node) {
-                    newSteps[i] = {
-                      ...newSteps[i],
-                      status: "done" as const,
-                      data: d.data,
-                    };
-                    break;
-                  }
+      // 统一使用 SSE 解析（/api/chat/graph 返回 SSE 事件流）
+      setWorkflowSteps([]);
+      let lastUpdateTime = 0;
+      const UPDATE_INTERVAL = 30; // 30ms 节流，纯文本渲染足够快
+      await parseSSEStream(response, ({ event, data }) => {
+        const d = data as {
+          status: string;
+          node: string;
+          label: string;
+          message?: string;
+          data?: Record<string, unknown>;
+          text?: string;
+        };
+        if (event === "status") {
+          setWorkflowSteps((prev) => {
+            if (d.status === "running") {
+              return [
+                ...prev,
+                {
+                  node: d.node,
+                  label: d.label,
+                  status: "running" as const,
+                  message: d.message,
+                },
+              ];
+            } else {
+              const newSteps = [...prev];
+              for (let i = newSteps.length - 1; i >= 0; i--) {
+                if (newSteps[i].node === d.node) {
+                  newSteps[i] = {
+                    ...newSteps[i],
+                    status: "done" as const,
+                    data: d.data,
+                  };
+                  break;
                 }
-                return newSteps;
               }
-            });
-          } else if (event === "content") {
-            assistantMessage.content += d.text || "";
-            const now = Date.now();
-            if (now - lastUpdateTime >= UPDATE_INTERVAL) {
-              lastUpdateTime = now;
-              setMessages((prev) =>
-                prev.map((msg) =>
-                  msg.id === assistantMessage.id
-                    ? { ...msg, content: assistantMessage.content }
-                    : msg
-                )
-              );
+              return newSteps;
             }
-          } else if (event === "error") {
-            setErrorMessage(d.message || "多Agent工作流执行失败");
-          }
-        });
-        // 最终更新确保完整内容渲染
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantMessage.id
-              ? { ...msg, content: assistantMessage.content }
-              : msg
-          )
-        );
-        setWorkflowSteps([]);
-      } else {
-        const reader = response.body!.getReader();
-        const decoder = new TextDecoder();
-        let lastUpdateTime = 0;
-        const UPDATE_INTERVAL = 30; // 30ms 节流，纯文本渲染足够快，约 33fps
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          // stream:true 保留跨 chunk 的多字节字符（中文）内部状态，避免乱码
-          const chunk = decoder.decode(value, { stream: true });
-
-          if (chunk.startsWith("[ERROR]") || (assistantMessage.content === "" && chunk.includes("[ERROR]"))) {
-            const errText = (assistantMessage.content + chunk).replace("[ERROR]", "").trim();
-            setMessages((prev) => prev.filter((msg) => msg.id !== assistantMessage.id));
-            throw new Error(errText || "LLM 调用失败");
-          }
-
-          assistantMessage.content += chunk;
+          });
+        } else if (event === "content") {
+          assistantMessage.content += d.text || "";
           const now = Date.now();
           if (now - lastUpdateTime >= UPDATE_INTERVAL) {
             lastUpdateTime = now;
@@ -299,23 +254,19 @@ export function useChat() {
               )
             );
           }
+        } else if (event === "error") {
+          setErrorMessage(d.message || "工作流执行失败");
         }
-
-        // 刷新 decoder 剩余字节（处理跨 chunk 的多字节字符尾部）
-        const remaining = decoder.decode();
-        if (remaining) {
-          assistantMessage.content += remaining;
-        }
-
-        // 最终更新确保完整内容渲染
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantMessage.id
-              ? { ...msg, content: assistantMessage.content }
-              : msg
-          )
-        );
-      }
+      });
+      // 最终更新确保完整内容渲染
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === assistantMessage.id
+            ? { ...msg, content: assistantMessage.content }
+            : msg
+        )
+      );
+      setWorkflowSteps([]);
     } catch (error) {
       console.error("Chat error:", error);
       const msg = error instanceof Error ? error.message : "发送消息失败";

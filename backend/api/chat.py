@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 import traceback
@@ -38,11 +38,12 @@ async def _extract_memories_background(
     """Background task to extract memories from conversation"""
     try:
         async with async_session_maker() as session:
-            # Get recent conversation messages
+            # Get recent conversation messages（传入 user_id 做归属校验）
             messages = await conversation_service.get_recent_messages(
                 session=session,
                 conversation_id=conversation_id,
-                limit=10  # Last 10 messages
+                limit=10,  # Last 10 messages
+                user_id=user_id,
             )
 
             if len(messages) < 2:  # Need at least user + assistant
@@ -108,14 +109,17 @@ async def chat(
             user_id=user_id,
         )
         # 保存用户消息
-        await conversation_service.add_message(
-            session=session,
-            conversation_id=request.conversationId,
-            role="user",
-            content=request.message,
-            model=request.model,
-            user_id=user_id,
-        )
+        try:
+            await conversation_service.add_message(
+                session=session,
+                conversation_id=request.conversationId,
+                role="user",
+                content=request.message,
+                model=request.model,
+                user_id=user_id,
+            )
+        except ValueError:
+            raise HTTPException(status_code=403, detail="对话不存在或无权访问")
 
     async def generate():
         assistant_content = ""
@@ -179,7 +183,11 @@ async def chat_with_rag(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    """Chat with RAG, memory and conversation persistence"""
+    """Chat with RAG, memory and conversation persistence
+
+    .. deprecated:: 统一智能路径已迁移至 /api/chat/graph，此端点保留向后兼容。
+    前端默认走 /api/chat/graph（SSE 格式），此端点仍返回纯文本流。
+    """
     user_id = str(current_user.id)
 
     # Agent 自动路由（或手动指定）
@@ -209,14 +217,17 @@ async def chat_with_rag(
             user_id=user_id,
         )
         # 保存用户消息
-        await conversation_service.add_message(
-            session=session,
-            conversation_id=request.conversationId,
-            role="user",
-            content=request.message,
-            model=request.model,
-            user_id=user_id,
-        )
+        try:
+            await conversation_service.add_message(
+                session=session,
+                conversation_id=request.conversationId,
+                role="user",
+                content=request.message,
+                model=request.model,
+                user_id=user_id,
+            )
+        except ValueError:
+            raise HTTPException(status_code=403, detail="对话不存在或无权访问")
 
     async def generate():
         assistant_content = ""
@@ -292,11 +303,14 @@ async def chat_with_graph(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    """多 Agent 协同对话（SSE 事件流）
+    """统一智能对话端点（SSE 事件流）
+
+    统一路径：意图分析 → 领域过滤 RAG → 真流式生成。
+    根据 domain 自动决定是否走 RAG 检索，无需手动开关。
 
     返回 SSE 格式的事件流：
-    - event: status  → 各节点工作状态
-    - event: content → 最终回答分块
+    - event: status  → 各节点工作状态（orchestrator/rag_bot/reviewer）
+    - event: content → 逐字实时输出
     - event: done    → 完成信号
     - event: error   → 错误信息
     """
@@ -312,16 +326,19 @@ async def chat_with_graph(
             user_id=user_id,
         )
         # 保存用户消息
-        await conversation_service.add_message(
-            session=session,
-            conversation_id=request.conversationId,
-            role="user",
-            content=request.message,
-            model=request.model,
-            user_id=user_id,
-        )
+        try:
+            await conversation_service.add_message(
+                session=session,
+                conversation_id=request.conversationId,
+                role="user",
+                content=request.message,
+                model=request.model,
+                user_id=user_id,
+            )
+        except ValueError:
+            raise HTTPException(status_code=403, detail="对话不存在或无权访问")
 
-    # 构建 AgentState
+    # 构建 AgentState（统一注入 use_memory / use_tools / use_local_embedding / use_rag）
     state: AgentState = {
         "user_message": request.message,
         "api_key": request.apiKey,
@@ -331,6 +348,10 @@ async def chat_with_graph(
         "user_id": user_id,
         "messages": optimized_context,
         "agent_id": request.agentId,  # 传递用户手动选择的导师
+        "use_memory": request.use_memory,
+        "use_tools": request.use_tools,
+        "use_local_embedding": request.use_local_embedding,
+        "use_rag": request.use_rag,
     }
 
     async def generate():
@@ -368,6 +389,19 @@ async def chat_with_graph(
                             session=session,
                             conversation_id=request.conversationId,
                             api_key=request.apiKey,
+                            user_id=user_id,
+                        )
+                    )
+
+                # 自动提取记忆（当开启记忆功能时）
+                if request.use_memory:
+                    asyncio.create_task(
+                        _extract_memories_background(
+                            conversation_id=request.conversationId,
+                            api_key=request.apiKey,
+                            provider=request.model.split("-")[0] if "-" in request.model else "openai",
+                            base_url=request.baseUrl,
+                            use_local_embedding=request.use_local_embedding,
                             user_id=user_id,
                         )
                     )

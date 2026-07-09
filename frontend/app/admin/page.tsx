@@ -357,7 +357,7 @@ ${labRows}
           use_rag: false,
           use_memory: false,
           use_tools: false,
-          use_local_embedding: false,
+          use_local_embedding: true,
         }),
         signal: controller.signal,
       });

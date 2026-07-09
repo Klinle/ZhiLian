@@ -87,9 +87,16 @@ class ConversationService:
         self,
         session: AsyncSession,
         conversation_id: str,
-        limit: int = 1000
+        limit: int = 1000,
+        user_id: str = None,
     ) -> List[Message]:
-        """获取对话的消息列表"""
+        """获取对话的消息列表（可选按 user_id 做归属过滤）"""
+        # 纵深防御：如果传了 user_id，先验证对话归属权
+        if user_id:
+            conv = await self.get_conversation(session, conversation_id, user_id=user_id)
+            if not conv:
+                return []
+
         result = await session.execute(
             select(Message)
             .where(Message.conversation_id == conversation_id)
@@ -102,9 +109,16 @@ class ConversationService:
         self,
         session: AsyncSession,
         conversation_id: str,
-        limit: int = 10
+        limit: int = 10,
+        user_id: str = None,
     ) -> List[Message]:
-        """获取最近的消息（用于记忆提取）"""
+        """获取最近的消息（用于记忆提取，可选按 user_id 做归属过滤）"""
+        # 纵深防御：如果传了 user_id，先验证对话归属权
+        if user_id:
+            conv = await self.get_conversation(session, conversation_id, user_id=user_id)
+            if not conv:
+                return []
+
         result = await session.execute(
             select(Message)
             .where(Message.conversation_id == conversation_id)
@@ -125,6 +139,11 @@ class ConversationService:
         user_id: str = None,
     ) -> Message:
         """添加消息到对话"""
+        # 先验证对话归属权，拒绝跨用户写入
+        conversation = await self.get_conversation(session, str(conversation_id), user_id=user_id)
+        if not conversation:
+            raise ValueError("对话不存在或无权访问")
+
         # 计算 token
         tokens = count_tokens(content, model)
 
@@ -139,12 +158,10 @@ class ConversationService:
         )
         session.add(message)
 
-        # 更新对话统计
-        conversation = await self.get_conversation(session, str(conversation_id), user_id=user_id)
-        if conversation:
-            conversation.message_count += 1
-            conversation.total_tokens += tokens
-            conversation.updated_at = datetime.utcnow()
+        # 已确认归属权，安全更新统计
+        conversation.message_count += 1
+        conversation.total_tokens += tokens
+        conversation.updated_at = datetime.utcnow()
 
         await session.commit()
         await session.refresh(message)
@@ -160,8 +177,8 @@ class ConversationService:
         """
         生成对话摘要 - 将早期对话压缩为摘要
         """
-        # 获取早期的消息（前50%）
-        messages = await self.get_conversation_messages(session, conversation_id)
+        # 获取早期的消息（前50%），传入 user_id 做归属校验
+        messages = await self.get_conversation_messages(session, conversation_id, user_id=user_id)
         if len(messages) < 10:
             return ""  # 消息太少不需要摘要
 

@@ -25,19 +25,22 @@ class EmbeddingService:
     async def get_embeddings(
         self,
         texts: List[str],
-        api_key: str,
+        api_key: str = "",
         provider: str = "openai",
         base_url: Optional[str] = None,
-        use_local: bool = False
+        use_local: bool = True
     ) -> List[List[float]]:
-        """Get embeddings for a list of texts using direct clients (bypassing litellm)"""
+        """Get embeddings for a list of texts.
 
-        # Use local Ollama if requested
-        if use_local:
-            return await self._get_ollama_embeddings(
-                texts, self.OLLAMA_BASE_URL, self.OLLAMA_EMBEDDING_MODEL
-            )
+        固定使用本地 Ollama BGE-M3 模型，确保文档上传与检索的向量维度和模型一致。
+        api_key / provider / base_url 参数仅保留接口兼容，实际不使用。
+        """
+        # 始终使用本地 Ollama BGE-M3
+        return await self._get_ollama_embeddings(
+            texts, self.OLLAMA_BASE_URL, self.OLLAMA_EMBEDDING_MODEL
+        )
 
+        # 以下云端嵌入代码已弃用，保留仅供参考（不会执行）
         url = base_url if base_url else self.PROVIDER_BASE_URLS.get(provider)
         model = self.PROVIDER_MODELS.get(provider, "text-embedding-3-small")
 
@@ -76,12 +79,12 @@ class EmbeddingService:
     async def get_single_embedding(
         self,
         text: str,
-        api_key: str,
+        api_key: str = "",
         provider: str = "openai",
         base_url: Optional[str] = None,
-        use_local: bool = False
+        use_local: bool = True
     ) -> List[float]:
-        """Get embedding for a single text"""
+        """Get embedding for a single text (固定使用本地 BGE-M3)"""
         embeddings = await self.get_embeddings([text], api_key, provider, base_url, use_local)
         return embeddings[0]
 
