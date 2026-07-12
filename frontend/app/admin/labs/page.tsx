@@ -873,8 +873,8 @@ export default function AdminLabsPage() {
                       {nodeContext && !nodeContextLoading ? (
                         nodeContext.chunk_count === 0 ? (
                           <div className="flex items-start gap-1.5 text-[10px] text-amber-600 dark:text-amber-400">
-                            <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
-                            <span>该节点暂无关联知识文档，AI 将仅基于节点描述出题，建议先上传文档</span>
+                            {/*<AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />*/}
+                            {/*<span>该节点暂无关联知识文档，AI 将仅基于节点描述出题，建议先上传文档</span>*/}
                           </div>
                         ) : (
                           <div className="space-y-1.5">

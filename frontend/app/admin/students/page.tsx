@@ -19,11 +19,11 @@ interface MockStudent {
 }
 
 const VIRTUAL_STUDENTS: MockStudent[] = [
-  { name: "陈晨", avatar: "陈晨", role: "学员", nodesMastered: 11, totalNodes: 41, exercisesPassed: 24, chatCount: 42, lastActive: "25分钟前", joinDate: "2026-07-05", weakCategories: ["并发与操作系统", "网络编程服务"] },
-  { name: "李明", avatar: "李明", role: "学员", nodesMastered: 10, totalNodes: 41, exercisesPassed: 20, chatCount: 38, lastActive: "42分钟前", joinDate: "2026-07-05", weakCategories: ["数据工程持久化"] },
-  { name: "王芳", avatar: "王芳", role: "学员", nodesMastered: 9, totalNodes: 41, exercisesPassed: 18, chatCount: 35, lastActive: "1小时前", joinDate: "2026-07-05", weakCategories: ["面向对象架构", "并发与操作系统"] },
-  { name: "张伟", avatar: "张伟", role: "学员", nodesMastered: 8, totalNodes: 41, exercisesPassed: 15, chatCount: 30, lastActive: "3小时前", joinDate: "2026-07-05", weakCategories: ["数据结构与特性"] },
-  { name: "刘洋", avatar: "刘洋", role: "学员", nodesMastered: 7, totalNodes: 41, exercisesPassed: 12, chatCount: 26, lastActive: "4小时前", joinDate: "2026-07-05", weakCategories: ["编程开发基础", "数据结构与特性"] },
+  { name: "陈晨", avatar: "陈晨", role: "学员", nodesMastered: 11, totalNodes: 41, exercisesPassed: 24, chatCount: 42, lastActive: "昨天", joinDate: "2026-07-05", weakCategories: ["并发与操作系统", "网络编程服务"] },
+  { name: "李明", avatar: "李明", role: "学员", nodesMastered: 10, totalNodes: 41, exercisesPassed: 20, chatCount: 38, lastActive: "昨天", joinDate: "2026-07-05", weakCategories: ["数据工程持久化"] },
+  { name: "王芳", avatar: "王芳", role: "学员", nodesMastered: 9, totalNodes: 41, exercisesPassed: 18, chatCount: 35, lastActive: "昨天", joinDate: "2026-07-05", weakCategories: ["面向对象架构", "并发与操作系统"] },
+  { name: "张伟", avatar: "张伟", role: "学员", nodesMastered: 8, totalNodes: 41, exercisesPassed: 15, chatCount: 30, lastActive: "昨天", joinDate: "2026-07-05", weakCategories: ["数据结构与特性"] },
+  { name: "刘洋", avatar: "刘洋", role: "学员", nodesMastered: 7, totalNodes: 41, exercisesPassed: 12, chatCount: 26, lastActive: "昨天", joinDate: "2026-07-05", weakCategories: ["编程开发基础", "数据结构与特性"] },
   { name: "赵鑫", avatar: "赵鑫", role: "学员", nodesMastered: 6, totalNodes: 41, exercisesPassed: 10, chatCount: 22, lastActive: "昨天", joinDate: "2026-07-05", weakCategories: ["网络编程服务", "数据工程持久化"] },
   { name: "孙悦", avatar: "孙悦", role: "学员", nodesMastered: 5, totalNodes: 41, exercisesPassed: 8, chatCount: 18, lastActive: "昨天", joinDate: "2026-07-05", weakCategories: ["面向对象架构"] },
   { name: "周磊", avatar: "周磊", role: "学员", nodesMastered: 4, totalNodes: 41, exercisesPassed: 6, chatCount: 12, lastActive: "2天前", joinDate: "2026-07-05", weakCategories: ["并发与操作系统", "网络编程服务", "数据工程持久化"] },
